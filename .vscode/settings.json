@@ -1,0 +1,8 @@
+{
+    "workbench.colorTheme": "Bearded Theme Monokai Stone",
+    "editor.formatOnSave": true,
+    "[rust]": {
+        "editor.defaultFormatter": "rust-lang.rust-analyzer",
+        "editor.formatOnSave": true
+    }
+}
