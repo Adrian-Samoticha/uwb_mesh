@@ -436,6 +436,30 @@ impl Simulator {
         );
     }
 
+    fn draw_main_ui(&mut self, d: &mut RaylibDrawHandle) {
+        let screen_height = d.get_screen_height() as f32;
+
+        let mut x = 8.0;
+
+        if d.gui_button(
+            Rectangle::new(x, screen_height - 24.0 - 8.0, 64.0, 24.0),
+            "Step",
+        ) {
+            self.left_mouse_button_released_action = Some(Box::new(|simulator| {
+                // TODO: call step()
+            }));
+        }
+
+        x += 72.0;
+
+        if d.gui_button(
+            Rectangle::new(x, screen_height - 24.0 - 8.0, 64.0, 24.0),
+            if self.is_paused { "Play" } else { "Pause" },
+        ) {
+            self.is_paused = !self.is_paused;
+        }
+    }
+
     fn handle_dragging(&mut self, d: &mut RaylibDrawHandle) {
         if !self.do_drag {
             return;
@@ -511,6 +535,7 @@ impl Simulator {
         self.draw_devices(d);
 
         self.draw_clock(d);
+        self.draw_main_ui(d);
 
         self.handle_actions(d);
     }
