@@ -1,6 +1,6 @@
 use crate::device::Device;
 use crate::device_properties::DeviceProperties;
-use crate::raymath::{vector2_add, vector2_scale, vector2_subtract};
+use crate::raymath::{vector2_add, vector2_rotate, vector2_scale, vector2_subtract};
 use crate::simulator_properties;
 use crate::templates;
 
@@ -456,6 +456,41 @@ impl Simulator {
         }
     }
 
+    fn draw_clock_hand(&self, d: &mut RaylibDrawHandle, position: Vector2, size: f32, angle: f32) {
+        let tip_position = vector2_add(position, vector2_rotate(Vector2::new(size, 0.0), angle));
+        d.draw_line_ex(position, tip_position, 2.0, Color::new(0, 0, 0, 94));
+    }
+
+    fn draw_clock(&self, d: &mut RaylibDrawHandle) {
+        let size = 32.0f32;
+        let distance_to_window_edge = 8.0f32;
+
+        let window_width = d.get_screen_width() as f32;
+
+        let center = Vector2::new(
+            window_width - distance_to_window_edge - size * 0.5,
+            distance_to_window_edge + size * 0.5,
+        );
+
+        let simulation_time = self
+            .simulation_time
+            .load(std::sync::atomic::Ordering::Relaxed) as f32;
+        self.draw_clock_hand(
+            d,
+            center,
+            size * 0.4,
+            simulation_time % 1000.0 * (2.0 * std::f32::consts::PI / 1000.0),
+        );
+        self.draw_clock_hand(
+            d,
+            center,
+            size * 0.25,
+            simulation_time % 60000.0 * (2.0 * std::f32::consts::PI / 60000.0),
+        );
+
+        d.draw_circle_lines_v(center, size * 0.5, Color::new(0, 0, 0, 64));
+    }
+
     /// Draws the simulator.
     pub fn draw(&mut self, d: &mut RaylibDrawHandle) {
         self.set_actions_to_default_state(d);
@@ -467,13 +502,15 @@ impl Simulator {
         d.clear_background(Color::new(240, 240, 240, 255));
         self.draw_grid(d, Color::new(210, 210, 210, 255), 50.0, 1.0);
 
-        self.draw_all_device_connections(d);
-        self.draw_devices(d);
-
         let text_position = self.real_position_to_screen_position(Vector2::new(190.0, 200.0), d);
         d.draw_text(
             "CONTROLS:\nDouble click: Add device\nLMB: Select elements\nCtrl + LMB: Select multiple elements\nRMB: Pan view\nCtrl + MB3: Zoom",
             text_position.x as i32, text_position.y as i32, (20.0 * self.camera_zoom) as i32, Color::LIGHTGRAY);
+
+        self.draw_all_device_connections(d);
+        self.draw_devices(d);
+
+        self.draw_clock(d);
 
         self.handle_actions(d);
     }
