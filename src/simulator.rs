@@ -1,16 +1,29 @@
 use crate::device::Device;
 use crate::device_properties::DeviceProperties;
+use crate::message::Message;
 use crate::raymath::{vector2_add, vector2_rotate, vector2_scale, vector2_subtract};
 use crate::simulator_properties;
 use crate::templates;
 
 use raylib::prelude::*;
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::sync::atomic::AtomicI32;
 
 pub struct Simulator {
     /// The properties of the simulator.
     properties: simulator_properties::SimulatorProperties,
+
+    /// A recursive mutex used to protect the shared resources of the simulator.
+    ///
+    /// This mutex is used to synchronize access to the simulator's shared data
+    /// structures, such as the list of devices and the device properties.
+    ///
+    /// All member functions that modify the shared data structures should acquire
+    /// a lock on this mutex before making any modifications. This ensures that
+    /// multiple threads accessing the simulator will not interfere with each
+    /// other.
+    mutex: std::sync::Mutex<()>,
 
     /// The position of the camera in the simulated space.
     camera_position: Vector2,
@@ -24,7 +37,9 @@ pub struct Simulator {
     /// The list of devices in the simulator.
     devices: Vec<std::sync::Arc<Device>>,
 
-    // TODO: add messages here
+    /// The list of messages in the simulator.
+    messages: Vec<Arc<Message>>,
+
     /// A map from device ID to its properties in the simulator.
     device_id_to_properties: std::collections::HashMap<u32, DeviceProperties>,
 
@@ -64,9 +79,11 @@ impl Simulator {
     pub fn new() -> Self {
         Self {
             properties: simulator_properties::SimulatorProperties::default(),
+            mutex: std::sync::Mutex::new(()),
             camera_position: Vector2::new(0.0, 0.0),
             camera_zoom: 1.0,
             simulation_time: AtomicI32::new(0),
+            messages: Vec::new(),
             devices: Vec::new(),
             device_id_to_properties: std::collections::HashMap::new(),
             left_mouse_button_pressed_action: None,
@@ -137,6 +154,79 @@ impl Simulator {
                 simulator.selected_items.clear();
             }));
         }
+    }
+
+    fn handle_device_step(&mut self, step_size: u32) {
+        for device in &self.devices {
+            let device_id: u32 = device.get_id().try_into().unwrap();
+            self.device_id_to_properties
+                .get_mut(&device_id)
+                .unwrap()
+                .millis += step_size;
+
+            device.heartbeat();
+        }
+    }
+    fn remove_messages_whose_devices_have_been_deleted(&mut self) {
+        self.messages.retain(|message| {
+            self.device_id_to_properties
+                .contains_key(&(message.receiver_id as u32))
+                && self
+                    .device_id_to_properties
+                    .contains_key(&(message.sender_id as u32))
+        });
+    }
+
+    fn remove_arrived_messages(&mut self) {
+        self.messages
+            .retain(|message| message.time_until_arrival > 0);
+    }
+
+    fn handle_message_step(&mut self, step_size: u32) {
+        self.remove_messages_whose_devices_have_been_deleted();
+
+        let mut arrived_message_indices = Vec::new();
+
+        for (index, message) in self.messages.iter_mut().enumerate() {
+            if let Some(message) = Arc::get_mut(message) {
+                message.time_until_arrival -= step_size as i32;
+
+                if message.time_until_arrival <= 0 {
+                    arrived_message_indices.push(index);
+                }
+            }
+        }
+
+        for index in arrived_message_indices {
+            let message = Arc::clone(&self.messages[index]);
+            self.receive_message(message);
+        }
+
+        self.remove_arrived_messages();
+    }
+
+    fn receive_message(&mut self, message: Arc<Message>) {
+        if message.will_be_dropped {
+            return;
+        }
+
+        let receiver_id: u32 = match message.receiver_id.try_into() {
+            Ok(id) => id,
+            Err(_) => return,
+        };
+
+        assert!(self.device_id_to_properties.contains_key(&receiver_id));
+
+        let Some(receiver_properties) = self.device_id_to_properties.get_mut(&receiver_id) else {
+            return;
+        };
+
+        let on_message_received = receiver_properties
+            .on_message_received
+            .as_mut()
+            .expect("Receiver properties should have a message handler");
+
+        on_message_received(message);
     }
 
     fn get_distance_between_points(&self, point1: Vector2, point2: Vector2) -> f32 {
@@ -436,6 +526,56 @@ impl Simulator {
         );
     }
 
+    fn get_step_size(&self, d: &mut RaylibDrawHandle) -> i32 {
+        let window_time = d.get_time();
+        while self.is_some_device_still_working() {
+            if d.get_time() > window_time + 0.1 {
+                println!("Warning: Wait for still working devices timed out!");
+
+                return 1;
+            }
+        }
+
+        let _lock = self.mutex.lock().unwrap();
+        if !self.messages.is_empty() {
+            return 1;
+        }
+
+        32
+    }
+
+    fn get_step_skip_size(&self) -> i32 {
+        let _lock = self.mutex.lock().unwrap();
+        if !self.messages.is_empty() {
+            return 1;
+        }
+
+        8
+    }
+
+    fn is_some_device_still_working(&self) -> bool {
+        for device in &self.devices {
+            if device.get_heartbeats_left() > 0 {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    fn step(&mut self, d: &mut RaylibDrawHandle) {
+        for _i in (0..self.get_step_size(d)).step_by(self.get_step_skip_size() as usize) {
+            // let _lock = self.mutex.lock().unwrap(); // <- This might be necessary D:
+            let skip_size = self.get_step_skip_size();
+
+            self.simulation_time
+                .fetch_add(skip_size, std::sync::atomic::Ordering::Relaxed);
+
+            self.handle_device_step(skip_size as u32);
+            self.handle_message_step(skip_size as u32);
+        }
+    }
+
     fn draw_main_ui(&mut self, d: &mut RaylibDrawHandle) {
         let screen_height = d.get_screen_height() as f32;
 
@@ -446,7 +586,7 @@ impl Simulator {
             "Step",
         ) {
             self.left_mouse_button_released_action = Some(Box::new(|simulator| {
-                // TODO: call step()
+                // simulator.step(d);
             }));
         }
 

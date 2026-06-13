@@ -1,6 +1,8 @@
 use raylib::prelude::*;
 use std::sync::Arc;
 
+use crate::message::Message;
+
 /// Properties of a device used for simulation.
 ///
 /// This struct contains properties about a device that are used for simulation.
@@ -17,11 +19,11 @@ pub struct DeviceProperties {
     /// This is the number of milliseconds the device has been active.
     pub millis: u32,
 
-    /// Called when an ESP-NOW message is received.
+    /// Called when an message is received.
     ///
-    /// This is a callback that is called when an ESP-NOW message is received. The
+    /// This is a callback that is called when an message is received. The
     /// callback will be called with the message that was received.
-    // pub on_message_received: Option<Arc<dyn Fn(Arc<EspNowMessage>) + Send + Sync>>, // TODO: implement this
+    pub on_message_received: Option<Arc<dyn Fn(Arc<Message>) + Send + Sync>>, // TODO: implement this
 
     /// The virtual console associated with this device.
     ///
@@ -39,7 +41,7 @@ impl DeviceProperties {
             position,
             millis: 0,
             nothing: (),
-            // on_message_received: None,
+            on_message_received: None,
             // virtual_console: VirtualConsole::new(), // TODO: implement this
         }
     }
@@ -51,6 +53,7 @@ impl Default for DeviceProperties {
             position: Vector2::new(0.0, 0.0),
             millis: 0,
             nothing: (),
+            on_message_received: None,
             // on_message_received: None,
             // virtual_console: VirtualConsole::new(), // TODO: implement this
         }

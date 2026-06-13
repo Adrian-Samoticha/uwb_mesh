@@ -3,6 +3,7 @@ use raylib::prelude::*;
 mod device;
 mod device_properties;
 mod id_provider;
+mod message;
 mod raymath;
 mod simulator;
 mod simulator_properties;
