@@ -44,10 +44,11 @@ pub struct Simulator {
     device_id_to_properties: std::collections::HashMap<u32, DeviceProperties>,
 
     /// The action to be performed when the left mouse button is pressed.
-    left_mouse_button_pressed_action: Option<Box<dyn FnMut(&mut Simulator)>>,
+    left_mouse_button_pressed_action: Option<Box<dyn FnMut(&mut Simulator, &mut RaylibDrawHandle)>>,
 
     /// The action to be performed when the left mouse button is released.
-    left_mouse_button_released_action: Option<Box<dyn FnMut(&mut Simulator)>>,
+    left_mouse_button_released_action:
+        Option<Box<dyn FnMut(&mut Simulator, &mut RaylibDrawHandle)>>,
 
     /// The timestamp of the last left mouse button press event.
     last_left_mouse_button_pressed_time: f64,
@@ -133,13 +134,13 @@ impl Simulator {
 
     fn handle_actions(&mut self, d: &mut RaylibDrawHandle) {
         if let Some(mut action) = self.left_mouse_button_pressed_action.take() {
-            action(self);
+            action(self, d);
             self.last_left_mouse_button_pressed_time = d.get_time();
             self.last_left_mouse_button_pressed_position = d.get_mouse_position();
         }
 
         if let Some(mut action) = self.left_mouse_button_released_action.take() {
-            action(self);
+            action(self, d);
             self.last_left_mouse_button_released_time = d.get_time();
             self.last_left_mouse_button_released_position = d.get_mouse_position();
         }
@@ -147,10 +148,10 @@ impl Simulator {
 
     fn set_actions_to_default_state(&mut self, d: &mut RaylibDrawHandle) {
         if d.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT) {
-            self.left_mouse_button_pressed_action = Some(Box::new(|_| {}));
+            self.left_mouse_button_pressed_action = Some(Box::new(|_, _| {}));
         }
         if d.is_mouse_button_released(MouseButton::MOUSE_BUTTON_LEFT) {
-            self.left_mouse_button_released_action = Some(Box::new(|simulator| {
+            self.left_mouse_button_released_action = Some(Box::new(|simulator, _| {
                 simulator.selected_items.clear();
             }));
         }
@@ -475,7 +476,7 @@ impl Simulator {
             && mouse.y <= button_rect.y + button_rect.height;
 
         if hovered && d.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT) {
-            self.left_mouse_button_pressed_action = Some(Box::new(|simulator| {
+            self.left_mouse_button_pressed_action = Some(Box::new(|simulator, _| {
                 simulator.do_drag = true;
             }));
         }
@@ -483,7 +484,7 @@ impl Simulator {
         if hovered && d.is_mouse_button_released(MouseButton::MOUSE_BUTTON_LEFT) {
             let is_left_ctrl_key_down = d.is_key_down(KeyboardKey::KEY_LEFT_CONTROL);
             let is_right_ctrl_key_down = d.is_key_down(KeyboardKey::KEY_RIGHT_CONTROL);
-            self.left_mouse_button_released_action = Some(Box::new(move |simulator| {
+            self.left_mouse_button_released_action = Some(Box::new(move |simulator, _| {
                 if is_left_ctrl_key_down || is_right_ctrl_key_down {
                     if simulator.selected_items.contains(&device_id) {
                         simulator.selected_items.remove(&device_id);
@@ -585,8 +586,8 @@ impl Simulator {
             Rectangle::new(x, screen_height - 24.0 - 8.0, 64.0, 24.0),
             "Step",
         ) {
-            self.left_mouse_button_released_action = Some(Box::new(|simulator| {
-                // simulator.step(d);
+            self.left_mouse_button_released_action = Some(Box::new(|simulator, d| {
+                simulator.step(d);
             }));
         }
 
@@ -676,6 +677,10 @@ impl Simulator {
 
         self.draw_clock(d);
         self.draw_main_ui(d);
+
+        if !self.is_paused {
+            self.step(d);
+        }
 
         self.handle_actions(d);
     }
