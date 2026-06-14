@@ -460,7 +460,7 @@ impl Simulator {
                 button_rect.height + distance_to_button * 2.0,
             );
             d.draw_rectangle_lines_ex(selection_rect, 4.0, Color::new(0, 192, 255, 255));
-            self.draw_esp_now_range_for_device(device, d);
+            self.draw_message_range_for_device(device, d);
         }
 
         d.draw_rectangle_rec(button_rect, Color::new(245, 245, 245, 255));
@@ -504,7 +504,7 @@ impl Simulator {
         }
     }
 
-    fn draw_esp_now_range_for_device(
+    fn draw_message_range_for_device(
         &self,
         device: &std::sync::Arc<Device>,
         d: &mut RaylibDrawHandle,
@@ -602,6 +602,133 @@ impl Simulator {
             if self.is_paused { "Play" } else { "Pause" },
         ) {
             self.is_paused = !self.is_paused;
+        }
+    }
+
+    fn draw_selected_device_ui(&mut self, d: &mut RaylibDrawHandle) {
+        if self.selected_items.is_empty() {
+            return;
+        }
+
+        for selected_item_id in &self.selected_items {
+            if !self.device_id_to_properties.contains_key(selected_item_id) {
+                return;
+            }
+        }
+
+        let mut y = 8.0;
+
+        if d.gui_button(Rectangle::new(8.0, y, 64.0, 24.0), "Delete") {
+            self.left_mouse_button_released_action = Some(Box::new(|simulator, _| {
+                let selected_items_copy: Vec<u32> =
+                    simulator.selected_items.iter().copied().collect();
+                for selected_item_id in selected_items_copy {
+                    simulator.remove_device(selected_item_id);
+                }
+            }));
+        }
+
+        y += 32.0;
+
+        if self.selected_items.len() == 1
+            && d.gui_button(Rectangle::new(8.0, y, 96.0, 24.0), "Open Console")
+        {
+            self.left_mouse_button_released_action = Some(Box::new(|simulator, _| {
+                simulator.current_dialog = Some(Box::new(|| {}));
+            }));
+        }
+    }
+
+    fn to_hex(data: u8) -> String {
+        format!("{data:02x}")
+    }
+
+    fn to_ascii(data: u8) -> String {
+        match data {
+            0 => "\\0".to_string(),
+            b'\n' => "\\n".to_string(),
+            b'\r' => "\\r".to_string(),
+            b'\t' => "\\t".to_string(),
+            8 => "\\b".to_string(),
+            12 => "\\f".to_string(),
+            11 => "\\v".to_string(),
+            32..=126 => char::from(data).to_string(),
+            _ => "?".to_string(),
+        }
+    }
+
+    fn draw_selected_message_ui(&mut self, d: &mut RaylibDrawHandle) {
+        if self.selected_items.is_empty() {
+            return;
+        }
+
+        for selected_item_id in &self.selected_items {
+            if !self
+                .messages
+                .iter()
+                .any(|message| message.id == *selected_item_id as u64)
+            {
+                return;
+            }
+        }
+
+        let mut y = 8.0;
+
+        if d.gui_button(Rectangle::new(8.0, y, 96.0, 24.0), "Drop/Undrop") {
+            self.left_mouse_button_released_action = Some(Box::new(|simulator, _| {
+                for message in &mut simulator.messages {
+                    if simulator.selected_items.contains(&(message.id as u32)) {
+                        if let Some(message) = Arc::get_mut(message) {
+                            message.will_be_dropped = !message.will_be_dropped;
+                        }
+                    }
+                }
+            }));
+        }
+
+        y += 32.0;
+
+        if self.selected_items.len() == 1 {
+            let selected_message_id = *self.selected_items.iter().next().unwrap() as u64;
+            if let Some(message) = self
+                .messages
+                .iter()
+                .find(|message| message.id == selected_message_id as u64)
+            {
+                let message_data = message
+                    .data
+                    .iter()
+                    .map(|byte| Self::to_hex(*byte))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                let message_string = format!(
+                    "\"{}\"",
+                    message
+                        .data
+                        .iter()
+                        .map(|byte| Self::to_ascii(*byte))
+                        .collect::<String>()
+                );
+
+                d.draw_text_ex(
+                    &d.get_font_default(),
+                    &message_data,
+                    Vector2::new(8.0, y),
+                    16.0,
+                    0.0,
+                    Color::new(0, 0, 0, 128),
+                );
+                y += 20.0;
+                d.draw_text_ex(
+                    &d.get_font_default(),
+                    &message_string,
+                    Vector2::new(8.0, y),
+                    16.0,
+                    0.0,
+                    Color::new(0, 0, 0, 128),
+                );
+            }
         }
     }
 
@@ -785,8 +912,8 @@ impl Simulator {
             self.draw_messages(d);
             self.draw_devices(d);
 
-            // self.draw_selected_device_ui(d);
-            // self.draw_selected_message_ui(d);
+            self.draw_selected_device_ui(d);
+            self.draw_selected_message_ui(d);
 
             self.draw_clock(d);
             self.draw_main_ui(d);
