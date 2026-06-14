@@ -659,7 +659,8 @@ impl Simulator {
         d.draw_circle_lines_v(center, size * 0.5, Color::new(0, 0, 0, 64));
     }
 
-    /// Draws the simulator.
+    /// Main loop for the simulator.  It handles user input, updates the state
+    /// of the simulator and renders the current frame.
     pub fn draw(&mut self, d: &mut RaylibDrawHandle) {
         self.set_actions_to_default_state(d);
 
