@@ -361,9 +361,12 @@ impl Simulator {
                     self.last_left_mouse_button_released_position,
                 ) < 5.0
             {
-                let real_position =
-                    self.screen_position_to_real_position(current_mouse_position, d);
-                self.add_device("Hapla", "Hapla", real_position);
+                self.left_mouse_button_released_action = Some(Box::new(|simulator, d| {
+                    let current_mouse_position = d.get_mouse_position();
+                    let real_position =
+                        simulator.screen_position_to_real_position(current_mouse_position, d);
+                    simulator.add_device("Hapla", "Hapla", real_position);
+                }));
             }
 
             self.last_left_mouse_button_released_time = d.get_time();
