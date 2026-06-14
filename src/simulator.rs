@@ -625,6 +625,107 @@ impl Simulator {
         }
     }
 
+    fn draw_messages(&mut self, d: &mut RaylibDrawHandle) {
+        for message in self.messages.clone() {
+            self.draw_message(message, d);
+        }
+    }
+
+    fn draw_message(&mut self, message: Arc<Message>, d: &mut RaylibDrawHandle) {
+        let sender_id: u32 = match message.sender_id.try_into() {
+            Ok(id) => id,
+            Err(_) => return,
+        };
+        let receiver_id: u32 = match message.receiver_id.try_into() {
+            Ok(id) => id,
+            Err(_) => return,
+        };
+
+        let Some(sender_properties) = self.device_id_to_properties.get(&sender_id) else {
+            return;
+        };
+        let Some(receiver_properties) = self.device_id_to_properties.get(&receiver_id) else {
+            return;
+        };
+
+        let transmission_percentage = message.get_transmission_percentage() as f32;
+        let real_position = sender_properties.position
+            + (receiver_properties.position - sender_properties.position) * transmission_percentage;
+        let screen_position = self.real_position_to_screen_position(real_position, d);
+
+        let button_size = 16.0 * self.camera_zoom as f32;
+        let button_rectangle = Rectangle::new(
+            screen_position.x - button_size / 2.0,
+            screen_position.y - button_size / 2.0,
+            button_size,
+            button_size,
+        );
+
+        if self.selected_items.contains(&(message.id as u32)) {
+            let distance_to_button = 6.0;
+            d.draw_rectangle_lines_ex(
+                Rectangle::new(
+                    button_rectangle.x - distance_to_button,
+                    button_rectangle.y - distance_to_button,
+                    button_rectangle.width + distance_to_button * 2.0,
+                    button_rectangle.height + distance_to_button * 2.0,
+                ),
+                4.0,
+                Color::new(0, 192, 255, 255),
+            );
+        }
+
+        let message_id = message.id as u32;
+        if d.gui_button(button_rectangle, "") {
+            self.left_mouse_button_released_action = Some(Box::new(move |simulator, d| {
+                if d.is_key_down(KeyboardKey::KEY_LEFT_CONTROL)
+                    || d.is_key_down(KeyboardKey::KEY_RIGHT_CONTROL)
+                {
+                    if simulator.selected_items.contains(&message_id) {
+                        simulator.selected_items.remove(&message_id);
+                    } else {
+                        simulator.selected_items.insert(message_id);
+                    }
+                    return;
+                }
+
+                simulator.selected_items.clear();
+                simulator.selected_items.insert(message_id);
+            }));
+        }
+
+        let color_hash = ((message.get_type() * 0xde) as u32 ^ 0xead) as i32;
+        let hue = (color_hash.rem_euclid(360)) as f32;
+        let color = Color::color_from_hsv(hue, 1.0, 1.0);
+
+        d.draw_rectangle_lines_ex(button_rectangle, 2.0 * self.camera_zoom as f32, color);
+
+        if message.will_be_dropped {
+            d.draw_line_ex(
+                Vector2::new(button_rectangle.x, button_rectangle.y),
+                Vector2::new(
+                    button_rectangle.x + button_rectangle.width,
+                    button_rectangle.y + button_rectangle.height,
+                ),
+                4.0 * self.camera_zoom as f32,
+                Color::RED,
+            );
+
+            d.draw_line_ex(
+                Vector2::new(
+                    button_rectangle.x + button_rectangle.width,
+                    button_rectangle.y,
+                ),
+                Vector2::new(
+                    button_rectangle.x,
+                    button_rectangle.y + button_rectangle.height,
+                ),
+                4.0 * self.camera_zoom as f32,
+                Color::RED,
+            );
+        }
+    }
+
     fn draw_clock_hand(&self, d: &mut RaylibDrawHandle, position: Vector2, size: f32, angle: f32) {
         let tip_position = vector2_add(position, vector2_rotate(Vector2::new(size, 0.0), angle));
         d.draw_line_ex(position, tip_position, 2.0, Color::new(0, 0, 0, 94));
@@ -681,7 +782,7 @@ impl Simulator {
             let _lock = SIMULATOR_MUTEX.lock();
 
             self.draw_all_device_connections(d);
-            // self.draw_messages(d);
+            self.draw_messages(d);
             self.draw_devices(d);
 
             // self.draw_selected_device_ui(d);
