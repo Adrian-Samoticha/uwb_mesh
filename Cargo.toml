@@ -5,3 +5,5 @@ edition = "2024"
 
 [dependencies]
 raylib = "5.5.1"
+lazy_static = "1.5.0"
+parking_lot = "0.12.5"

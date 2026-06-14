@@ -10,10 +10,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::AtomicI32;
 
-pub struct Simulator {
-    /// The properties of the simulator.
-    properties: simulator_properties::SimulatorProperties,
-
+lazy_static::lazy_static! {
     /// A recursive mutex used to protect the shared resources of the simulator.
     ///
     /// This mutex is used to synchronize access to the simulator's shared data
@@ -23,7 +20,12 @@ pub struct Simulator {
     /// a lock on this mutex before making any modifications. This ensures that
     /// multiple threads accessing the simulator will not interfere with each
     /// other.
-    mutex: std::sync::Mutex<()>,
+    static ref SIMULATOR_MUTEX: parking_lot::ReentrantMutex<()> = parking_lot::ReentrantMutex::new(());
+}
+
+pub struct Simulator {
+    /// The properties of the simulator.
+    properties: simulator_properties::SimulatorProperties,
 
     /// The position of the camera in the simulated space.
     camera_position: Vector2,
@@ -80,7 +82,6 @@ impl Simulator {
     pub fn new() -> Self {
         Self {
             properties: simulator_properties::SimulatorProperties::default(),
-            mutex: std::sync::Mutex::new(()),
             camera_position: Vector2::new(0.0, 0.0),
             camera_zoom: 1.0,
             simulation_time: AtomicI32::new(0),
@@ -374,7 +375,7 @@ impl Simulator {
         }
     }
 
-    fn draw_all_device_connections(&mut self, d: &mut RaylibDrawHandle) {
+    fn draw_all_device_connections(&self, d: &mut RaylibDrawHandle) {
         for device1 in &self.devices {
             for device2 in &self.devices {
                 self.draw_device_connections(device1, device2, d);
@@ -540,7 +541,7 @@ impl Simulator {
             }
         }
 
-        let _lock = self.mutex.lock().unwrap();
+        let _lock = SIMULATOR_MUTEX.lock();
         if !self.messages.is_empty() {
             return 1;
         }
@@ -549,7 +550,7 @@ impl Simulator {
     }
 
     fn get_step_skip_size(&self) -> i32 {
-        let _lock = self.mutex.lock().unwrap();
+        let _lock = SIMULATOR_MUTEX.lock();
         if !self.messages.is_empty() {
             return 1;
         }
@@ -569,7 +570,7 @@ impl Simulator {
 
     fn step(&mut self, d: &mut RaylibDrawHandle) {
         for _i in (0..self.get_step_size(d)).step_by(self.get_step_skip_size() as usize) {
-            // let _lock = self.mutex.lock().unwrap(); // <- This might be necessary D:
+            let _lock = SIMULATOR_MUTEX.lock();
             let skip_size = self.get_step_skip_size();
 
             self.simulation_time
@@ -677,7 +678,7 @@ impl Simulator {
             text_position.x as i32, text_position.y as i32, (20.0 * self.camera_zoom) as i32, Color::LIGHTGRAY);
 
         {
-            // let _lock = self.mutex.lock().unwrap(); // <- This might be necessary D:
+            let _lock = SIMULATOR_MUTEX.lock();
 
             self.draw_all_device_connections(d);
             // self.draw_messages(d);
