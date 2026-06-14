@@ -366,7 +366,7 @@ impl Simulator {
                     let current_mouse_position = d.get_mouse_position();
                     let real_position =
                         simulator.screen_position_to_real_position(current_mouse_position, d);
-                    simulator.add_device("Hapla", "Hapla", real_position);
+                    simulator.add_device("name", "model", real_position);
                 }));
             }
         }
