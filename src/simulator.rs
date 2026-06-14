@@ -632,7 +632,7 @@ impl Simulator {
         {
             let selected_device_id = *self.selected_items.iter().next().unwrap();
 
-            self.left_mouse_button_released_action = Some(Box::new(move |simulator, d| {
+            self.left_mouse_button_released_action = Some(Box::new(move |simulator, _d| {
                 simulator.current_dialog = Some(Box::new(move |simulator, d| {
                     let window_width = d.get_screen_width();
                     let window_height = d.get_screen_height();
