@@ -1,7 +1,7 @@
 use raylib::prelude::*;
 use std::sync::Arc;
 
-use crate::message::Message;
+use crate::{message::Message, virtual_console::VirtualConsole};
 
 /// Properties of a device used for simulation.
 ///
@@ -30,8 +30,7 @@ pub struct DeviceProperties {
     /// This is the virtual console associated with this device. The virtual
     /// console is a simulated console that can be used to input commands and
     /// view the output of the device.
-    nothing: (),
-    // pub virtual_console: VirtualConsole, // TODO: implement this
+    pub virtual_console: VirtualConsole,
 }
 
 impl DeviceProperties {
@@ -40,9 +39,8 @@ impl DeviceProperties {
         Self {
             position,
             millis: 0,
-            nothing: (),
             on_message_received: None,
-            // virtual_console: VirtualConsole::new(), // TODO: implement this
+            virtual_console: VirtualConsole::new(),
         }
     }
 }
@@ -52,10 +50,8 @@ impl Default for DeviceProperties {
         Self {
             position: Vector2::new(0.0, 0.0),
             millis: 0,
-            nothing: (),
             on_message_received: None,
-            // on_message_received: None,
-            // virtual_console: VirtualConsole::new(), // TODO: implement this
+            virtual_console: VirtualConsole::new(), // TODO: implement this
         }
     }
 }

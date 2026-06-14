@@ -8,6 +8,7 @@ mod raymath;
 mod simulator;
 mod simulator_properties;
 mod templates;
+mod virtual_console;
 
 fn main() {
     let mut simulator = simulator::Simulator::new();

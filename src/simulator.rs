@@ -74,7 +74,7 @@ pub struct Simulator {
     do_drag: bool,
 
     /// The currently active dialog.
-    current_dialog: Option<Box<dyn FnMut()>>,
+    current_dialog: Option<Box<dyn FnMut(&mut Simulator, &mut RaylibDrawHandle)>>,
 }
 
 impl Simulator {
@@ -633,8 +633,86 @@ impl Simulator {
         if self.selected_items.len() == 1
             && d.gui_button(Rectangle::new(8.0, y, 96.0, 24.0), "Open Console")
         {
-            self.left_mouse_button_released_action = Some(Box::new(|simulator, _| {
-                simulator.current_dialog = Some(Box::new(|| {}));
+            let selected_device_id = *self.selected_items.iter().next().unwrap();
+
+            self.left_mouse_button_released_action = Some(Box::new(move |simulator, d| {
+                simulator.current_dialog = Some(Box::new(move |simulator, d| {
+                    let window_width = d.get_screen_width();
+                    let window_height = d.get_screen_height();
+                    let screen_size = Vector2::new(window_width as f32, window_height as f32);
+
+                    let distance_to_edge = 32.0f32;
+
+                    let top_left = Vector2::new(distance_to_edge, distance_to_edge);
+                    let size =
+                        screen_size - Vector2::new(distance_to_edge * 2.0, distance_to_edge * 2.0);
+                    let bottom_right = top_left + size;
+
+                    d.draw_rectangle_v(top_left, size, Color::new(16, 16, 16, 192));
+                    d.draw_rectangle_lines_ex(
+                        Rectangle::new(top_left.x, top_left.y, size.x, size.y),
+                        2.0,
+                        Color::new(194, 194, 194, 194),
+                    );
+
+                    d.draw_scissor_mode(
+                        top_left.x as i32,
+                        top_left.y as i32,
+                        size.x as i32,
+                        size.y as i32,
+                        |mut d| {
+                            if let Some(properties) =
+                                simulator.get_device_properties(selected_device_id)
+                            {
+                                let virtual_console = &mut properties.virtual_console;
+
+                                let pressed_key = unsafe { raylib::ffi::GetCharPressed() };
+                                if (32..=125).contains(&pressed_key) {
+                                    let ch = char::from_u32(pressed_key as u32).unwrap_or('\0');
+                                    virtual_console.write_char_to_input_buffer(ch);
+                                    virtual_console.write_char_to_output(ch, true);
+                                }
+
+                                let console_output = virtual_console.get_output();
+                                let scroll_position_y = 0.0f32;
+                                let mut y = 8.0f32;
+
+                                for line in console_output {
+                                    if y - scroll_position_y >= -16.0 {
+                                        let color = if line.is_input {
+                                            Color::new(255, 150, 0, 255)
+                                        } else {
+                                            Color::new(255, 255, 255, 255)
+                                        };
+
+                                        d.draw_text(
+                                            &line.line,
+                                            (top_left.x + 8.0) as i32,
+                                            (top_left.y + y - scroll_position_y) as i32,
+                                            16,
+                                            color,
+                                        );
+                                    }
+
+                                    y += 16.0;
+                                    if y - scroll_position_y > size.y {
+                                        break;
+                                    }
+                                }
+                            }
+                        },
+                    );
+
+                    let _scroll_y = 0.0f32; // TODO: handle mouse wheel
+                    // scroll_position_y = (scroll_position_y - get_mouse_wheel_move().y * 5.0).max(0.0);
+
+                    if d.gui_button(
+                        Rectangle::new(bottom_right.x - 24.0, top_left.y, 24.0, 24.0),
+                        "x",
+                    ) {
+                        simulator.current_dialog = None;
+                    }
+                }));
             }));
         }
     }
@@ -888,6 +966,17 @@ impl Simulator {
         d.draw_circle_lines_v(center, size * 0.5, Color::new(0, 0, 0, 64));
     }
 
+    fn draw_current_dialog(&mut self, d: &mut RaylibDrawHandle) {
+        if let Some(mut dialog) = self.current_dialog.take() {
+            self.current_dialog = Some(Box::new(|_simulator, _d| {}));
+            dialog(self, d);
+            // If the dialog wasn't closed during its execution, keep it open.
+            if !self.current_dialog.is_none() {
+                self.current_dialog = Some(dialog);
+            }
+        }
+    }
+
     /// Main loop for the simulator.  It handles user input, updates the state
     /// of the simulator and renders the current frame.
     pub fn draw(&mut self, d: &mut RaylibDrawHandle) {
@@ -918,7 +1007,7 @@ impl Simulator {
             self.draw_clock(d);
             self.draw_main_ui(d);
 
-            // self.draw_current_dialog(d);
+            self.draw_current_dialog(d);
         }
 
         if !self.is_paused {
