@@ -369,9 +369,6 @@ impl Simulator {
                     simulator.add_device("Hapla", "Hapla", real_position);
                 }));
             }
-
-            self.last_left_mouse_button_released_time = d.get_time();
-            self.last_left_mouse_button_released_position = current_mouse_position;
         }
     }
 
