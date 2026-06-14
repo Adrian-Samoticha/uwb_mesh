@@ -677,10 +677,16 @@ impl Simulator {
             text_position.x as i32, text_position.y as i32, (20.0 * self.camera_zoom) as i32, Color::LIGHTGRAY);
 
         self.draw_all_device_connections(d);
+        // self.draw_messages(d);
         self.draw_devices(d);
+
+        // self.draw_selected_device_ui(d);
+        // self.draw_selected_message_ui(d);
 
         self.draw_clock(d);
         self.draw_main_ui(d);
+
+        // self.draw_current_dialog(d);
 
         if !self.is_paused {
             self.step(d);
