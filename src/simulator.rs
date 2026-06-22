@@ -660,6 +660,8 @@ impl Simulator {
             let selected_device_id = *self.selected_items.iter().next().unwrap();
 
             self.left_mouse_button_released_action = Some(Box::new(move |simulator, _d| {
+                let mut scroll_position_y = 0.0f32;
+
                 simulator.current_dialog = Some(Box::new(move |simulator, d| {
                     let window_width = d.get_screen_width();
                     let window_height = d.get_screen_height();
@@ -698,7 +700,6 @@ impl Simulator {
                                 }
 
                                 let console_output = virtual_console.get_output();
-                                let scroll_position_y = 0.0f32;
                                 let mut y = 8.0f32;
 
                                 for line in console_output {
@@ -727,8 +728,8 @@ impl Simulator {
                         },
                     );
 
-                    let _scroll_y = 0.0f32; // TODO: handle mouse wheel
-                    // scroll_position_y = (scroll_position_y - get_mouse_wheel_move().y * 5.0).max(0.0);
+                    scroll_position_y =
+                        (scroll_position_y - d.get_mouse_wheel_move_v().y * 5.0).max(0.0);
 
                     if d.gui_button(
                         Rectangle::new(bottom_right.x - 24.0, top_left.y, 24.0, 24.0),
