@@ -22,6 +22,7 @@ fn main() {
         .size(800, 600)
         .title("UWB Mesh Simulator")
         .resizable()
+        .vsync()
         .build();
 
     while !rl.window_should_close() {
