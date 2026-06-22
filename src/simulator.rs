@@ -7,8 +7,8 @@ use crate::templates;
 
 use raylib::prelude::*;
 use std::collections::HashSet;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::{Arc, Mutex, Weak};
 
 lazy_static::lazy_static! {
     /// A recursive mutex used to protect the shared resources of the simulator.
@@ -24,6 +24,10 @@ lazy_static::lazy_static! {
 }
 
 pub struct Simulator {
+    /// A weak reference to itself, used for creating hardware interfaces for
+    /// devices.
+    self_ref: Weak<Mutex<Self>>,
+
     /// The properties of the simulator.
     properties: simulator_properties::SimulatorProperties,
 
@@ -81,8 +85,9 @@ unsafe impl Sync for Simulator {}
 
 impl Simulator {
     /// Creates a new simulator with the default properties.
-    pub fn new() -> Self {
-        Self {
+    pub fn new() -> Arc<Mutex<Self>> {
+        let simulator = Arc::new(Mutex::new(Self {
+            self_ref: Weak::new(),
             properties: simulator_properties::SimulatorProperties::default(),
             camera_position: Vector2::new(0.0, 0.0),
             camera_zoom: 1.0,
@@ -100,7 +105,15 @@ impl Simulator {
             is_paused: false,
             do_drag: false,
             current_dialog: None,
+        }));
+
+        if let Ok(mut sim) = simulator.lock() {
+            sim.self_ref = Arc::downgrade(&simulator);
+        } else {
+            panic!("Failed to acquire lock on simulator during initialization");
         }
+
+        simulator
     }
 
     fn real_position_to_screen_position(
@@ -1027,7 +1040,7 @@ impl Simulator {
         );
         self.devices.push(device.clone());
 
-        device.init(name, model, self);
+        device.init(name, model, self.self_ref.clone());
     }
 
     /// Removes a device from the simulator.

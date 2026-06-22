@@ -1,9 +1,12 @@
 use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
 pub type Id = u64;
 
+use crate::interfaces::hardware_interface_simulator_impl::HardwareInterfaceSimulatorImpl;
 use crate::simulator::Simulator;
+
+mod hapla_firmware_middleware;
 
 pub struct Device {
     id: Id,
@@ -25,18 +28,13 @@ impl Device {
         Arc::new(Self::new(new_id))
     }
 
-    pub fn init(self: &Arc<Self>, name: &str, model: &str, simulator: *mut Simulator) {
+    pub fn init(self: &Arc<Self>, name: &str, model: &str, simulator: Weak<Mutex<Simulator>>) {
         let mut hapla_firmware_middleware =
             hapla_firmware_middleware::HaplaFirmwareMiddleware::new();
 
-        let hardware_interface =
-            interface_implementations::hardware_interface_impl::HardwareInterfaceImpl::new(
-                simulator, self.id,
-            );
-        let application_interface =
-            interface_implementations::application_interface_impl::ApplicationInterfaceImpl::new();
+        let hardware_interface = HardwareInterfaceSimulatorImpl::new(simulator, self.id as u32);
 
-        hapla_firmware_middleware.init(name, model, hardware_interface, application_interface);
+        hapla_firmware_middleware.init(name, model, Box::new(hardware_interface));
 
         let pending = self.heartbeats_left.swap(0, Ordering::Relaxed);
         for _ in 0..pending {
@@ -67,42 +65,5 @@ impl Device {
 
     pub fn get_id(&self) -> Id {
         self.id
-    }
-}
-
-// ----------------------
-// Placeholder modules
-// ----------------------
-
-mod hapla_firmware_middleware;
-
-mod interface_implementations {
-    pub mod hardware_interface_impl {
-        use crate::device::Id;
-        use crate::simulator::Simulator;
-
-        pub struct HardwareInterfaceImpl {
-            _simulator: *mut Simulator,
-            _id: Id,
-        }
-
-        impl HardwareInterfaceImpl {
-            pub fn new(simulator: *mut Simulator, id: Id) -> Self {
-                Self {
-                    _simulator: simulator,
-                    _id: id,
-                }
-            }
-        }
-    }
-
-    pub mod application_interface_impl {
-        pub struct ApplicationInterfaceImpl;
-
-        impl ApplicationInterfaceImpl {
-            pub fn new() -> Self {
-                Self
-            }
-        }
     }
 }

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
 use crate::interfaces::hardware_interface::UwbAddressImpl;
 use crate::interfaces::message_queue::MessageQueue;
@@ -9,14 +9,14 @@ use super::super::simulator::Simulator;
 use super::hardware_interface::{HardwareError, HardwareInterface, IncomingMessage, UwbAddress};
 
 pub struct HardwareInterfaceSimulatorImpl {
-    simulator: Arc<Mutex<Simulator>>,
+    simulator: Weak<Mutex<Simulator>>,
     id: u32,
     mutexes: HashMap<u32, Mutex<()>>,
     incoming_message_queue: Arc<Mutex<MessageQueue>>,
 }
 
 impl HardwareInterfaceSimulatorImpl {
-    pub fn new(simulator: Arc<Mutex<Simulator>>, id: u32) -> Self {
+    pub fn new(simulator: Weak<Mutex<Simulator>>, id: u32) -> Self {
         HardwareInterfaceSimulatorImpl {
             simulator,
             id,
@@ -44,8 +44,27 @@ impl HardwareInterfaceSimulatorImpl {
 }
 
 impl HardwareInterface for HardwareInterfaceSimulatorImpl {
+    fn printf(&self, args: std::fmt::Arguments<'_>) {
+        println!("1");
+        if let Some(simulator) = self.simulator.upgrade() {
+            println!("2");
+            // the next line causes a deadlock
+            let mut simulator = simulator.lock().unwrap(); // Acquire the lock once
+            println!("3");
+
+            if let Some(properties) = simulator.get_device_properties(self.id) {
+                println!("4");
+                for c in format!("{}", args).chars() {
+                    print!("{}", c);
+                    properties.virtual_console.write_char_to_input_buffer(c);
+                }
+            }
+        }
+    }
+
     fn is_serial_input_available(&self) -> bool {
-        if let Ok(mut simulator) = self.simulator.lock() {
+        if let Some(simulator) = self.simulator.upgrade() {
+            let mut simulator = simulator.lock().unwrap();
             let _lock = simulator.get_mutex();
             if let Some(properties) = simulator.get_device_properties(self.id) {
                 !properties.virtual_console.is_input_buffer_empty()
@@ -58,7 +77,8 @@ impl HardwareInterface for HardwareInterfaceSimulatorImpl {
     }
 
     fn read_char_over_serial(&self) -> Option<char> {
-        if let Ok(mut simulator) = self.simulator.lock() {
+        if let Some(simulator) = self.simulator.upgrade() {
+            let mut simulator = simulator.lock().unwrap();
             let _lock = simulator.get_mutex();
             if let Some(properties) = simulator.get_device_properties(self.id) {
                 properties
@@ -73,7 +93,8 @@ impl HardwareInterface for HardwareInterfaceSimulatorImpl {
     }
 
     fn millis(&self) -> u32 {
-        if let Ok(mut simulator) = self.simulator.lock() {
+        if let Some(simulator) = self.simulator.upgrade() {
+            let mut simulator = simulator.lock().unwrap();
             let _lock = simulator.get_mutex();
             if let Some(properties) = simulator.get_device_properties(self.id) {
                 properties.millis
@@ -86,7 +107,8 @@ impl HardwareInterface for HardwareInterfaceSimulatorImpl {
     }
 
     fn is_alive(&self) -> bool {
-        if let Ok(simulator) = self.simulator.lock() {
+        if let Some(simulator) = self.simulator.upgrade() {
+            let simulator = simulator.lock().unwrap();
             let _lock = simulator.get_mutex();
             simulator.is_device_id_present(self.id)
         } else {
@@ -121,10 +143,11 @@ impl HardwareInterface for HardwareInterfaceSimulatorImpl {
         let simulator_arc = self.simulator.clone();
         let incoming_message_queue = self.incoming_message_queue.clone();
 
-        let Ok(mut simulator) = simulator_arc.lock() else {
+        let Some(simulator) = simulator_arc.upgrade() else {
             return HardwareError::SoftwareBug;
         };
 
+        let mut simulator = simulator.lock().unwrap();
         let _lock = simulator.get_mutex();
         simulator.register_message_callback(self.id, move |message: Arc<Message>| {
             let sender_id = message.sender_id as u32;
@@ -181,9 +204,10 @@ impl HardwareInterface for HardwareInterfaceSimulatorImpl {
     fn send_message(&mut self, destination: UwbAddress, data: &[u8]) -> HardwareError {
         let simulator_arc = self.simulator.clone();
 
-        let Ok(mut simulator) = simulator_arc.lock() else {
+        let Some(simulator) = simulator_arc.upgrade() else {
             return HardwareError::SoftwareBug;
         };
+        let mut simulator = simulator.lock().unwrap();
 
         let sender_id = self.id;
         let broadcast_address = UwbAddress::new(0xff, 0xff, 0xff, 0xff, 0xff, 0xff);

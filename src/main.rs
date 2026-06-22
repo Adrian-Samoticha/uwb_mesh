@@ -10,13 +10,13 @@ mod simulator_properties;
 mod templates;
 mod virtual_console;
 mod interfaces {
-    mod hardware_interface;
-    mod hardware_interface_simulator_impl;
+    pub mod hardware_interface;
+    pub mod hardware_interface_simulator_impl;
     mod message_queue;
 }
 
 fn main() {
-    let mut simulator = simulator::Simulator::new();
+    let simulator = simulator::Simulator::new();
 
     let (mut rl, thread) = raylib::init()
         .size(800, 600)
@@ -28,6 +28,8 @@ fn main() {
     while !rl.window_should_close() {
         let mut d = rl.begin_drawing(&thread);
 
-        simulator.draw(&mut d);
+        if let Ok(mut sim) = simulator.lock() {
+            sim.draw(&mut d);
+        }
     }
 }
