@@ -9,6 +9,11 @@ mod simulator;
 mod simulator_properties;
 mod templates;
 mod virtual_console;
+mod interfaces {
+    mod hardware_interface;
+    mod hardware_interface_simulator_impl;
+    mod message_queue;
+}
 
 fn main() {
     let mut simulator = simulator::Simulator::new();

@@ -8,7 +8,7 @@ use crate::templates;
 use raylib::prelude::*;
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::sync::atomic::AtomicI32;
+use std::sync::atomic::{AtomicI32, Ordering};
 
 lazy_static::lazy_static! {
     /// A recursive mutex used to protect the shared resources of the simulator.
@@ -76,6 +76,8 @@ pub struct Simulator {
     /// The currently active dialog.
     current_dialog: Option<Box<dyn FnMut(&mut Simulator, &mut RaylibDrawHandle)>>,
 }
+
+unsafe impl Sync for Simulator {}
 
 impl Simulator {
     /// Creates a new simulator with the default properties.
@@ -1055,5 +1057,88 @@ impl Simulator {
     /// Gets a vector of all device ids in the simulator.
     pub fn get_all_device_ids(&self) -> Vec<u32> {
         self.device_id_to_properties.keys().copied().collect()
+    }
+
+    /// Sends a message to the simulator.
+    pub fn send_message(&mut self, message: Arc<Message>) {
+        self.messages.push(message);
+    }
+
+    /// Gets the mutex for the simulator. The mutex is used to protect the
+    /// simulator state from concurrent access.
+    pub fn get_mutex(&self) -> &parking_lot::ReentrantMutex<()> {
+        &SIMULATOR_MUTEX
+    }
+
+    /// Registers a callback for messages sent to the device with the given id.
+    pub fn register_message_callback(
+        &mut self,
+        device_id: u32,
+        callback: impl Fn(Arc<Message>) + Send + Sync + 'static,
+    ) {
+        let props = self
+            .device_id_to_properties
+            .get_mut(&device_id)
+            .expect("device not found");
+        props.on_message_received = Some(Arc::new(callback));
+    }
+
+    /// Gets the properties of the simulator.
+    ///
+    /// The properties of the simulator are used to customize the behavior of the simulator.
+    pub fn get_simulator_properties(&mut self) -> &mut simulator_properties::SimulatorProperties {
+        &mut self.properties
+    }
+
+    /// Calculates the transmission quality at the given position.
+    ///
+    /// The transmission quality is a value between 0.0 and 1.0 that represents the
+    /// quality of the transmission in the simulated space. The quality is based on
+    /// the position of the device in the simulated space and the current
+    /// simulation time. It is used to determine the likelihood of a message being
+    /// received by a device.
+    pub fn get_transmission_quality(&self, position: Vector2) -> f64 {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let rounded_x = (position.x / 128.0).round() as i32;
+        let rounded_y = (position.y / 128.0).round() as i32;
+        let rounded_time =
+            (self.simulation_time.load(Ordering::Relaxed) as f64 / 128.0).round() as i64;
+
+        let mut hasher = DefaultHasher::new();
+        rounded_time.hash(&mut hasher);
+        rounded_x.hash(&mut hasher);
+        rounded_y.hash(&mut hasher);
+        let hash = hasher.finish();
+
+        // Map hash to [0.0, 1.0)
+        (hash as f64) / (u64::MAX as f64)
+    }
+
+    /// Calculates whether a message should be dropped when sent from `point1` to `point2`.
+    ///
+    /// Returns `true` if the message should be dropped, `false` otherwise.
+    pub fn do_drop_message(&self, point1: Vector2, point2: Vector2) -> bool {
+        let quality1 = self.get_transmission_quality(point1);
+        let quality2 = self.get_transmission_quality(point2);
+        let quality = (quality1 + quality2) / 2.0;
+        let drop_chance = self.get_message_drop_chance_between_points(point1, point2);
+        quality < drop_chance
+    }
+
+    /// Gets all devices within transmission range of the given point.
+    pub fn get_devices_in_range(&self, point: Vector2) -> Vec<Arc<Device>> {
+        self.devices
+            .iter()
+            .filter(|device| {
+                let device_id = device.get_id() as u32;
+                let device_position = self.device_id_to_properties[&device_id].position;
+                let drop_chance =
+                    self.get_message_drop_chance_between_points(point, device_position);
+                drop_chance < 0.999_999_99
+            })
+            .map(|device| Arc::clone(device))
+            .collect()
     }
 }

@@ -1,8 +1,6 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub type ID = u64;
-pub type WifiChannel = u8;
-
 static GLOBAL_ID_PROVIDER: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug)]
@@ -17,8 +15,6 @@ pub struct Message {
     pub transmission_time: i32,
     /// The time period until this message will be received.
     pub time_until_arrival: i32,
-    /// The channel number on which this message will be sent.
-    pub channel: WifiChannel,
     /// The length of the data that is being sent.
     pub length: usize,
     /// The data that is being sent.
@@ -35,7 +31,6 @@ impl Message {
         receiver_id: ID,
         transmission_time: i32,
         time_until_arrival: i32,
-        channel: WifiChannel,
         length: usize,
         data: &[u8],
         will_be_dropped: bool,
@@ -50,7 +45,6 @@ impl Message {
             receiver_id,
             transmission_time,
             time_until_arrival,
-            channel,
             length: copy_len,
             data: payload,
             will_be_dropped,
@@ -61,7 +55,6 @@ impl Message {
         sender_id: ID,
         receiver_id: ID,
         transmission_time: i32,
-        channel: WifiChannel,
         length: usize,
         data: &[u8],
         will_be_dropped: bool,
@@ -73,7 +66,6 @@ impl Message {
             receiver_id,
             transmission_time,
             transmission_time,
-            channel,
             length,
             data,
             will_be_dropped,
