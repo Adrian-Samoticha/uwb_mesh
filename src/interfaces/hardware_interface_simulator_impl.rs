@@ -60,7 +60,7 @@ impl HardwareInterface for HardwareInterfaceSimulatorImpl {
             let sim = unsafe { &mut *guard.get() };
             if let Some(properties) = sim.get_device_properties(self.id) {
                 for c in format!("{}", args).chars() {
-                    properties.virtual_console.write_char_to_input_buffer(c);
+                    properties.virtual_console.write_char_to_output(c, false);
                 }
             }
         }
