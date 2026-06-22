@@ -1,12 +1,12 @@
 use crate::interfaces::hardware_interface;
 
-pub struct HaplaFirmwareMiddleware {
+pub struct Firmware {
     name: String,
     model: String,
     hardware_interface: Option<Box<dyn hardware_interface::HardwareInterface>>,
 }
 
-impl HaplaFirmwareMiddleware {
+impl Firmware {
     pub fn new() -> Self {
         Self {
             name: String::new(),

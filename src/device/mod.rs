@@ -6,11 +6,11 @@ pub type Id = u64;
 use crate::interfaces::hardware_interface_simulator_impl::HardwareInterfaceSimulatorImpl;
 use crate::simulator::SimulatorMutex;
 
-mod hapla_firmware_middleware;
+mod firmware;
 
 pub struct Device {
     id: Id,
-    middleware: parking_lot::Mutex<Option<hapla_firmware_middleware::HaplaFirmwareMiddleware>>,
+    middleware: parking_lot::Mutex<Option<firmware::Firmware>>,
     heartbeats_left: AtomicI32,
 }
 
@@ -29,20 +29,19 @@ impl Device {
     }
 
     pub fn init(self: &Arc<Self>, name: &str, model: &str, simulator: Weak<SimulatorMutex>) {
-        let mut hapla_firmware_middleware =
-            hapla_firmware_middleware::HaplaFirmwareMiddleware::new();
+        let mut firmware = firmware::Firmware::new();
 
         let hardware_interface = HardwareInterfaceSimulatorImpl::new(simulator, self.id as u32);
 
-        hapla_firmware_middleware.init(name, model, Box::new(hardware_interface));
+        firmware.init(name, model, Box::new(hardware_interface));
 
         let pending = self.heartbeats_left.swap(0, Ordering::Relaxed);
         for _ in 0..pending {
-            hapla_firmware_middleware.heartbeat();
+            firmware.heartbeat();
         }
 
         let mut guard = self.middleware.lock();
-        *guard = Some(hapla_firmware_middleware);
+        *guard = Some(firmware);
     }
 
     pub fn heartbeat(&self) {
