@@ -25,12 +25,10 @@ impl HaplaFirmwareMiddleware {
         self.model = model.to_string();
         self.hardware_interface = Some(hardware_interface);
 
-        println!("before");
         self.hardware_interface
             .as_ref()
             .unwrap()
             .printf(format_args!("Hello World!\n"));
-        println!("after");
     }
 
     pub fn heartbeat(&mut self) {

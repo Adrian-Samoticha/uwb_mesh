@@ -6,9 +6,10 @@ use crate::simulator_properties;
 use crate::templates;
 
 use raylib::prelude::*;
+use std::cell::UnsafeCell;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Weak};
 
 lazy_static::lazy_static! {
     /// A recursive mutex used to protect the shared resources of the simulator.
@@ -23,10 +24,18 @@ lazy_static::lazy_static! {
     static ref SIMULATOR_MUTEX: parking_lot::ReentrantMutex<()> = parking_lot::ReentrantMutex::new(());
 }
 
+/// Type alias for the shared simulator handle.
+///
+/// `UnsafeCell` provides interior mutability needed to obtain `&mut Simulator`
+/// through the `ReentrantMutexGuard` (which only exposes `Deref`, not `DerefMut`).
+/// Call `guard.get()` on the guard to obtain a `*mut Simulator`, then wrap it
+/// in `&mut *ptr` inside an `unsafe` block.
+pub type SimulatorMutex = parking_lot::ReentrantMutex<UnsafeCell<Simulator>>;
+
 pub struct Simulator {
     /// A weak reference to itself, used for creating hardware interfaces for
     /// devices.
-    self_ref: Weak<Mutex<Self>>,
+    self_ref: Weak<SimulatorMutex>,
 
     /// The properties of the simulator.
     properties: simulator_properties::SimulatorProperties,
@@ -85,8 +94,8 @@ unsafe impl Sync for Simulator {}
 
 impl Simulator {
     /// Creates a new simulator with the default properties.
-    pub fn new() -> Arc<Mutex<Self>> {
-        let simulator = Arc::new(Mutex::new(Self {
+    pub fn new() -> Arc<SimulatorMutex> {
+        let simulator = Arc::new(SimulatorMutex::new(UnsafeCell::new(Self {
             self_ref: Weak::new(),
             properties: simulator_properties::SimulatorProperties::default(),
             camera_position: Vector2::new(0.0, 0.0),
@@ -105,12 +114,15 @@ impl Simulator {
             is_paused: false,
             do_drag: false,
             current_dialog: None,
-        }));
+        })));
 
-        if let Ok(mut sim) = simulator.lock() {
+        {
+            let guard = simulator.lock();
+            // SAFETY: The ReentrantMutex guarantees exclusive access at all times.
+            // UnsafeCell::get() is the only legal way to obtain *mut T from a shared
+            // reference; the resulting &mut Simulator is valid for the guard's lifetime.
+            let sim = unsafe { &mut *guard.get() };
             sim.self_ref = Arc::downgrade(&simulator);
-        } else {
-            panic!("Failed to acquire lock on simulator during initialization");
         }
 
         simulator

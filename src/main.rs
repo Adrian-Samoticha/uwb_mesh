@@ -28,8 +28,11 @@ fn main() {
     while !rl.window_should_close() {
         let mut d = rl.begin_drawing(&thread);
 
-        if let Ok(mut sim) = simulator.lock() {
-            sim.draw(&mut d);
-        }
+        let guard = simulator.lock();
+        // SAFETY: The ReentrantMutex guarantees exclusive access at all times.
+        // UnsafeCell::get() is the only legal way to obtain *mut T from a shared
+        // reference; the resulting &mut Simulator is valid while the guard is live.
+        let sim = unsafe { &mut *guard.get() };
+        sim.draw(&mut d);
     }
 }

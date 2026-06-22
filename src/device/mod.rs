@@ -1,16 +1,16 @@
 use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Weak};
 
 pub type Id = u64;
 
 use crate::interfaces::hardware_interface_simulator_impl::HardwareInterfaceSimulatorImpl;
-use crate::simulator::Simulator;
+use crate::simulator::SimulatorMutex;
 
 mod hapla_firmware_middleware;
 
 pub struct Device {
     id: Id,
-    middleware: Mutex<Option<hapla_firmware_middleware::HaplaFirmwareMiddleware>>,
+    middleware: parking_lot::Mutex<Option<hapla_firmware_middleware::HaplaFirmwareMiddleware>>,
     heartbeats_left: AtomicI32,
 }
 
@@ -18,7 +18,7 @@ impl Device {
     pub fn new(id: Id) -> Self {
         Self {
             id,
-            middleware: Mutex::new(None),
+            middleware: parking_lot::Mutex::new(None),
             heartbeats_left: AtomicI32::new(0),
         }
     }
@@ -28,7 +28,7 @@ impl Device {
         Arc::new(Self::new(new_id))
     }
 
-    pub fn init(self: &Arc<Self>, name: &str, model: &str, simulator: Weak<Mutex<Simulator>>) {
+    pub fn init(self: &Arc<Self>, name: &str, model: &str, simulator: Weak<SimulatorMutex>) {
         let mut hapla_firmware_middleware =
             hapla_firmware_middleware::HaplaFirmwareMiddleware::new();
 
@@ -41,12 +41,12 @@ impl Device {
             hapla_firmware_middleware.heartbeat();
         }
 
-        let mut guard = self.middleware.lock().expect("middleware mutex poisoned");
+        let mut guard = self.middleware.lock();
         *guard = Some(hapla_firmware_middleware);
     }
 
     pub fn heartbeat(&self) {
-        let mut guard = self.middleware.lock().expect("middleware mutex poisoned");
+        let mut guard = self.middleware.lock();
         if let Some(middleware) = guard.as_mut() {
             middleware.heartbeat();
         } else {
@@ -59,7 +59,7 @@ impl Device {
     }
 
     pub fn destroy(&self) {
-        let mut guard = self.middleware.lock().expect("middleware mutex poisoned");
+        let mut guard = self.middleware.lock();
         *guard = None;
     }
 
