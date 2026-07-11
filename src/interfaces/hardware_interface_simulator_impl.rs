@@ -113,6 +113,13 @@ impl HardwareInterface for HardwareInterfaceSimulatorImpl {
         }
     }
 
+    fn delay(&self, ms: u32) {
+        println!(
+            "Called delay with {} ms (not implemented for simulator)",
+            ms
+        );
+    }
+
     fn is_alive(&self) -> bool {
         if let Some(sim_arc) = self.simulator.upgrade() {
             let guard = sim_arc.lock();
