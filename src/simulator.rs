@@ -579,7 +579,7 @@ impl Simulator {
             return 1;
         }
 
-        8
+        4
     }
 
     fn is_some_device_still_working(&self) -> bool {
