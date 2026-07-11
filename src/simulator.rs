@@ -601,6 +601,9 @@ impl Simulator {
                 .fetch_add(skip_size, std::sync::atomic::Ordering::Relaxed);
 
             self.handle_device_step(skip_size as u32);
+
+            let skip_size = self.get_step_skip_size(); // device may have sent a message, so the step size may have changed
+
             self.handle_message_step(skip_size as u32);
         }
     }
