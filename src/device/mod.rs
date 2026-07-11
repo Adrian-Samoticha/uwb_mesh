@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Mutex, Weak};
 
 pub type Id = u64;
 
@@ -7,6 +7,7 @@ use crate::interfaces::hardware_interface_simulator_impl::HardwareInterfaceSimul
 use crate::simulator::SimulatorMutex;
 
 mod firmware;
+mod mesh;
 
 pub struct Device {
     id: Id,
@@ -33,7 +34,7 @@ impl Device {
 
         let hardware_interface = HardwareInterfaceSimulatorImpl::new(simulator, self.id as u32);
 
-        firmware.init(name, model, Box::new(hardware_interface));
+        firmware.init(name, model, Arc::new(Mutex::new(hardware_interface)));
 
         let pending = self.heartbeats_left.swap(0, Ordering::Relaxed);
         for _ in 0..pending {

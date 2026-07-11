@@ -1,9 +1,15 @@
-use crate::interfaces::hardware_interface;
+use std::sync::{Arc, Mutex};
+
+use crate::{
+    device::mesh,
+    interfaces::hardware_interface::{self},
+};
 
 pub struct Firmware {
     name: String,
     model: String,
-    hardware_interface: Option<Box<dyn hardware_interface::HardwareInterface>>,
+    hardware_interface: Option<Arc<Mutex<dyn hardware_interface::HardwareInterface>>>,
+    mesh: mesh::Mesh,
 }
 
 impl Firmware {
@@ -12,6 +18,7 @@ impl Firmware {
             name: String::new(),
             model: String::new(),
             hardware_interface: None,
+            mesh: mesh::Mesh::new(),
         }
     }
 
@@ -19,19 +26,20 @@ impl Firmware {
         &mut self,
         name: &str,
         model: &str,
-        hardware_interface: Box<dyn hardware_interface::HardwareInterface>,
+        hardware_interface: Arc<Mutex<dyn hardware_interface::HardwareInterface>>,
     ) {
         self.name = name.to_string();
         self.model = model.to_string();
         self.hardware_interface = Some(hardware_interface);
 
-        self.hardware_interface
-            .as_ref()
-            .unwrap()
-            .printf(format_args!("Hello World!\n"));
+        let hi = self.hardware_interface.as_mut().unwrap();
+
+        hi.lock().unwrap().printf(format_args!("Hello World!\n"));
+
+        self.mesh.init(self.hardware_interface.clone().unwrap());
     }
 
     pub fn heartbeat(&mut self) {
-        // TODO: Implement middleware heartbeat.
+        self.mesh.heartbeat();
     }
 }
