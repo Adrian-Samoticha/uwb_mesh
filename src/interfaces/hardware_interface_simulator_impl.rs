@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::interfaces::hardware_interface::UwbAddressImpl;
 use crate::interfaces::message_queue::MessageQueue;
@@ -284,5 +285,15 @@ impl HardwareInterface for HardwareInterfaceSimulatorImpl {
         sim.send_message(Arc::new(message));
 
         HardwareError::Ok
+    }
+
+    fn generate_random_integer(&self) -> u32 {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0);
+
+        let mixed = nanos ^ ((self.id as u64) << 32) ^ (self.millis() as u64);
+        (mixed as u32) ^ ((mixed >> 32) as u32)
     }
 }
