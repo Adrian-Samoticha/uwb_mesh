@@ -23,7 +23,7 @@ pub struct DeviceProperties {
     ///
     /// This is a callback that is called when an message is received. The
     /// callback will be called with the message that was received.
-    pub on_message_received: Option<Arc<dyn Fn(Arc<Message>) + Send + Sync>>, // TODO: implement this
+    pub on_message_received: Option<Arc<dyn Fn(Arc<Message>) + Send + Sync>>,
 
     /// The virtual console associated with this device.
     ///
@@ -51,7 +51,7 @@ impl Default for DeviceProperties {
             position: Vector2::new(0.0, 0.0),
             millis: 0,
             on_message_received: None,
-            virtual_console: VirtualConsole::new(), // TODO: implement this
+            virtual_console: VirtualConsole::new(),
         }
     }
 }
