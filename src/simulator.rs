@@ -924,7 +924,7 @@ impl Simulator {
             }));
         }
 
-        let color_hash = ((message.get_type() * 0xde) as u32 ^ 0xead) as i32;
+        let color_hash = (message.get_type().overflowing_mul(0xde).0 as u32 ^ 0xead) as i32;
         let hue = (color_hash.rem_euclid(360)) as f32;
         let color = Color::color_from_hsv(hue, 1.0, 1.0);
 
