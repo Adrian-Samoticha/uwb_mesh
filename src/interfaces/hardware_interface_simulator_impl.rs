@@ -34,7 +34,7 @@ impl HardwareInterfaceSimulatorImpl {
         let id_byte2 = ((input_id >> 16) & 0xff) as u8;
         let id_byte3 = ((input_id >> 24) & 0xff) as u8;
 
-        UwbAddress::new(id_byte0, id_byte1, id_byte2, id_byte3, 0, 0)
+        UwbAddress::new(id_byte0, id_byte1, id_byte2, id_byte3, 0, 0, 0, 0)
     }
 
     fn uwb_address_to_id(&self, uwb_address: &UwbAddress) -> u32 {
@@ -176,6 +176,8 @@ impl HardwareInterface for HardwareInterfaceSimulatorImpl {
                 ((sender_id >> 24) & 0xff) as u8,
                 0,
                 0,
+                0,
+                0,
             );
 
             let mut queue_message = Vec::new();
@@ -191,7 +193,7 @@ impl HardwareInterface for HardwareInterfaceSimulatorImpl {
         let queue = self.incoming_message_queue.lock();
 
         if let Some(message_vec) = queue.pop() {
-            if message_vec.len() >= 6 {
+            if message_vec.len() >= 8 {
                 let sender_address = UwbAddress::new(
                     message_vec[0],
                     message_vec[1],
@@ -199,9 +201,11 @@ impl HardwareInterface for HardwareInterfaceSimulatorImpl {
                     message_vec[3],
                     message_vec[4],
                     message_vec[5],
+                    message_vec[6],
+                    message_vec[7],
                 );
 
-                let data = message_vec[6..].to_vec();
+                let data = message_vec[8..].to_vec();
 
                 Some(IncomingMessage {
                     source: sender_address,
@@ -226,7 +230,7 @@ impl HardwareInterface for HardwareInterfaceSimulatorImpl {
         let sim = unsafe { &mut *guard.get() };
 
         let sender_id = self.id;
-        let broadcast_address = UwbAddress::new(0xff, 0xff, 0xff, 0xff, 0xff, 0xff);
+        let broadcast_address = UwbAddress::new(0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff);
 
         if destination == broadcast_address {
             let sender_position = match sim.get_device_properties(sender_id) {

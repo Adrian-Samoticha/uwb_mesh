@@ -1,3 +1,4 @@
+use core::fmt;
 use std::fmt::Arguments;
 use std::thread;
 use std::time::Duration;
@@ -15,9 +16,31 @@ pub enum UwbAddress {
     Extended([u8; 8]),
 }
 
+impl fmt::Display for UwbAddress {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UwbAddress::Short(short) => write!(f, "Short({})", short),
+            UwbAddress::Extended(ext) => write!(
+                f,
+                "Extended({:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X})",
+                ext[0], ext[1], ext[2], ext[3], ext[4], ext[5], ext[6], ext[7]
+            ),
+        }
+    }
+}
+
 pub trait UwbAddressImpl {
     fn bytes(&self) -> [u8; 8];
-    fn new(byte0: u8, byte1: u8, byte2: u8, byte3: u8, byte4: u8, byte5: u8) -> Self
+    fn new(
+        byte0: u8,
+        byte1: u8,
+        byte2: u8,
+        byte3: u8,
+        byte4: u8,
+        byte5: u8,
+        byte6: u8,
+        byte7: u8,
+    ) -> Self
     where
         Self: Sized;
 }
@@ -35,7 +58,16 @@ impl UwbAddressImpl for UwbAddress {
         }
     }
 
-    fn new(byte0: u8, byte1: u8, byte2: u8, byte3: u8, byte4: u8, byte5: u8) -> Self {
+    fn new(
+        byte0: u8,
+        byte1: u8,
+        byte2: u8,
+        byte3: u8,
+        byte4: u8,
+        byte5: u8,
+        byte6: u8,
+        byte7: u8,
+    ) -> Self {
         let mut bytes = [0u8; 8];
         bytes[0] = byte0;
         bytes[1] = byte1;
@@ -43,6 +75,8 @@ impl UwbAddressImpl for UwbAddress {
         bytes[3] = byte3;
         bytes[4] = byte4;
         bytes[5] = byte5;
+        bytes[6] = byte6;
+        bytes[7] = byte7;
         UwbAddress::Extended(bytes)
     }
 }
