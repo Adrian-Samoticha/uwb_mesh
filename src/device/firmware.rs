@@ -148,6 +148,13 @@ impl Firmware {
                     destination_str, message
                 ));
             }
+            "print_uwb_address" => {
+                let hi = self.hardware_interface.as_mut().unwrap();
+                let address = hi.lock().unwrap().get_uwb_address();
+                hi.lock()
+                    .unwrap()
+                    .printf(format_args!("UWB Address: {:?}\n", address));
+            }
             _ => {
                 let hi = self.hardware_interface.as_mut().unwrap();
                 hi.lock()
