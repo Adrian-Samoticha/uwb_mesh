@@ -5,6 +5,7 @@ use crate::interfaces::hardware_interface::{self, UwbAddressImpl};
 enum Message {
     ProbeRequest {},
     ProbeResponse {},
+    PartnerRequest {},
 }
 
 impl Message {
@@ -12,6 +13,7 @@ impl Message {
         match self {
             Message::ProbeRequest {} => vec![0x01],
             Message::ProbeResponse {} => vec![0x02],
+            Message::PartnerRequest {} => vec![0x03],
         }
     }
 
@@ -23,6 +25,7 @@ impl Message {
         match data.first().copied() {
             Some(0x01) => Some(Message::ProbeRequest {}),
             Some(0x02) => Some(Message::ProbeResponse {}),
+            Some(0x03) => Some(Message::PartnerRequest {}),
             _ => None,
         }
     }
@@ -93,6 +96,9 @@ pub struct Mesh {
     /// A partner is a device for which a network edge has been established and
     /// is maintained.
     partners: Vec<hardware_interface::UwbAddress>,
+
+    /// List of devices for which this device is a partner.
+    partners_of: Vec<hardware_interface::UwbAddress>,
 }
 
 impl Mesh {
@@ -108,6 +114,7 @@ impl Mesh {
             },
             outgoing_message_handler: OutgoingMessageHandler::new(),
             partners: Vec::new(),
+            partners_of: Vec::new(),
         }
     }
 
@@ -215,6 +222,15 @@ impl Mesh {
 
             self.broadcast_probe_request();
         }
+
+        if let MeshStage::Running = &self.stage {
+            if self.time_in_steps % 500 == 0 {
+                let partners = self.partners.clone();
+                for partner in partners {
+                    self.send_partner_request(&partner);
+                }
+            }
+        }
     }
 
     fn receive_messages(&mut self) {
@@ -257,6 +273,16 @@ impl Mesh {
                             }
                         }
                     }
+                    Message::PartnerRequest {} => {
+                        hi.printf(format_args!(
+                            "Received partner request from {}\n",
+                            incoming_message.source
+                        ));
+
+                        if !self.partners_of.contains(&incoming_message.source) {
+                            self.partners_of.push(incoming_message.source);
+                        }
+                    }
                 }
             } else {
                 hi.printf(format_args!(
@@ -278,6 +304,21 @@ impl Mesh {
             destination: broadcast_address,
             data,
             time_to_send_in_ms: time_until_send_in_ms,
+        };
+        self.outgoing_message_handler.add_message(outgoing_message);
+    }
+
+    fn send_partner_request(&mut self, partner: &hardware_interface::UwbAddress) {
+        let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+
+        let message = Message::PartnerRequest {};
+        let data = message.to_data();
+        let time_until_send_in_ms = hi.generate_random_integer() % 10 * 10;
+
+        let outgoing_message = OutgoingMessage {
+            destination: partner.clone(),
+            data,
+            time_to_send_in_ms: time_until_send_in_ms as i32,
         };
         self.outgoing_message_handler.add_message(outgoing_message);
     }
