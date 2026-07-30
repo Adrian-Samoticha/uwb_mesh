@@ -37,11 +37,56 @@ enum MeshStage {
     Running,
 }
 
+struct OutgoingMessage {
+    destination: hardware_interface::UwbAddress,
+    data: Vec<u8>,
+    time_to_send_in_ms: i32,
+}
+
+struct OutgoingMessageHandler {
+    messages: Vec<OutgoingMessage>,
+}
+
+impl OutgoingMessageHandler {
+    fn new() -> Self {
+        Self {
+            messages: Vec::new(),
+        }
+    }
+
+    fn add_message(&mut self, message: OutgoingMessage) {
+        self.messages.push(message);
+    }
+
+    /// Processes the messages and returns a vector of messages that are ready
+    /// to be sent.
+    fn process_messages(&mut self, time_passed_in_ms: i32) -> Vec<OutgoingMessage> {
+        let mut ready_messages = Vec::new();
+
+        for message in &mut self.messages {
+            message.time_to_send_in_ms -= time_passed_in_ms;
+
+            if message.time_to_send_in_ms <= 0 {
+                ready_messages.push(OutgoingMessage {
+                    destination: message.destination.clone(),
+                    data: message.data.clone(),
+                    time_to_send_in_ms: 0,
+                });
+            }
+        }
+        self.messages
+            .retain(|message| message.time_to_send_in_ms > 0);
+
+        ready_messages
+    }
+}
+
 pub struct Mesh {
     hardware_interface: Option<Arc<Mutex<dyn hardware_interface::HardwareInterface>>>,
     time_of_last_step: u32,
     time_in_steps: u32,
     stage: MeshStage,
+    outgoing_message_handler: OutgoingMessageHandler,
 }
 
 impl Mesh {
@@ -55,6 +100,7 @@ impl Mesh {
                 time_until_broadcast_in_ms: 0,
                 found_devices: Vec::new(),
             },
+            outgoing_message_handler: OutgoingMessageHandler::new(),
         }
     }
 
@@ -107,6 +153,15 @@ impl Mesh {
 
     fn on_10ms_passed(&mut self) {
         let mut should_broadcast_probe = false;
+
+        self.outgoing_message_handler
+            .process_messages(10)
+            .into_iter()
+            .for_each(|message| {
+                let mut hi = self.hardware_interface.as_mut().unwrap().lock().unwrap();
+                hi.send_message(message.destination, &message.data);
+                drop(hi);
+            });
 
         if let MeshStage::InitConnections {
             time_until_done_in_ms,
@@ -161,7 +216,14 @@ impl Mesh {
 
                         let message = Message::ProbeResponse {};
                         let data = message.to_data();
-                        hi.send_message(incoming_message.source, &data);
+                        let time_until_send_in_ms = hi.generate_random_integer() % 50 * 10 + 10;
+
+                        let outgoing_message = OutgoingMessage {
+                            destination: incoming_message.source,
+                            data,
+                            time_to_send_in_ms: time_until_send_in_ms as i32,
+                        };
+                        self.outgoing_message_handler.add_message(outgoing_message);
                     }
                     Message::ProbeResponse {} => {
                         hi.printf(format_args!(
@@ -191,15 +253,17 @@ impl Mesh {
     }
 
     fn broadcast_probe_request(&mut self) {
-        let mut hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
-
         let message = Message::ProbeRequest {};
         let data = message.to_data();
         let broadcast_address =
             hardware_interface::UwbAddress::new(0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff);
+        let time_until_send_in_ms = 0;
 
-        hi.send_message(broadcast_address, &data);
-
-        drop(hi);
+        let outgoing_message = OutgoingMessage {
+            destination: broadcast_address,
+            data,
+            time_to_send_in_ms: time_until_send_in_ms,
+        };
+        self.outgoing_message_handler.add_message(outgoing_message);
     }
 }
