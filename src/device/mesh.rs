@@ -87,6 +87,12 @@ pub struct Mesh {
     time_in_steps: u32,
     stage: MeshStage,
     outgoing_message_handler: OutgoingMessageHandler,
+
+    /// List of devices that have been found during the InitConnections stage
+    /// and have been dedicated as partners.
+    /// A partner is a device for which a network edge has been established and
+    /// is maintained.
+    partners: Vec<hardware_interface::UwbAddress>,
 }
 
 impl Mesh {
@@ -101,6 +107,7 @@ impl Mesh {
                 found_devices: Vec::new(),
             },
             outgoing_message_handler: OutgoingMessageHandler::new(),
+            partners: Vec::new(),
         }
     }
 
@@ -183,9 +190,17 @@ impl Mesh {
 
             if *time_until_done_in_ms <= 0 {
                 let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+                let random_number = hi.generate_random_integer() % 100;
+                let number_of_partners = if random_number < 10 { 2 } else { 1 };
+                for i in 0..number_of_partners {
+                    if let Some(partner) = found_devices.get(i) {
+                        self.partners.push(partner.clone());
+                    }
+                }
+
                 hi.printf(format_args!(
-                    "InitConnections stage done. Found devices: {:?}\n",
-                    found_devices
+                    "InitConnections stage done. Found devices: {:?}; Partners: {:?}\n",
+                    found_devices, self.partners
                 ));
                 drop(hi);
 
