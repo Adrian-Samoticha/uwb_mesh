@@ -1,11 +1,16 @@
 use std::sync::{Arc, Mutex};
 
-use crate::interfaces::hardware_interface::{self, UwbAddressImpl};
+use crate::interfaces::hardware_interface::{self, UwbAddress, UwbAddressImpl};
+use std::collections::HashMap;
 
 enum Message {
     ProbeRequest {},
     ProbeResponse {},
     PartnerRequest {},
+    Ogm {
+        source: UwbAddress,
+        sequence_number: u32,
+    },
 }
 
 impl Message {
@@ -14,6 +19,15 @@ impl Message {
             Message::ProbeRequest {} => vec![0x01],
             Message::ProbeResponse {} => vec![0x02],
             Message::PartnerRequest {} => vec![0x03],
+            Message::Ogm {
+                source,
+                sequence_number,
+            } => {
+                let mut data = vec![0x04];
+                data.extend_from_slice(&source.bytes());
+                data.extend_from_slice(&sequence_number.to_be_bytes());
+                data
+            }
         }
     }
 
@@ -26,6 +40,21 @@ impl Message {
             Some(0x01) => Some(Message::ProbeRequest {}),
             Some(0x02) => Some(Message::ProbeResponse {}),
             Some(0x03) => Some(Message::PartnerRequest {}),
+            Some(0x04) => {
+                if data.len() < 1 + 8 + 4 {
+                    return None;
+                }
+                let source_bytes = &data[1..9];
+                let sequence_number_bytes = &data[9..13];
+
+                let source = UwbAddress::Extended(source_bytes.try_into().ok()?);
+                let sequence_number = u32::from_be_bytes(sequence_number_bytes.try_into().ok()?);
+
+                Some(Message::Ogm {
+                    source,
+                    sequence_number,
+                })
+            }
             _ => None,
         }
     }
@@ -84,6 +113,12 @@ impl OutgoingMessageHandler {
     }
 }
 
+#[derive(Eq, Hash, PartialEq)]
+struct UwbAddressAndSequenceNumber {
+    address: hardware_interface::UwbAddress,
+    sequence_number: u32,
+}
+
 pub struct Mesh {
     hardware_interface: Option<Arc<Mutex<dyn hardware_interface::HardwareInterface>>>,
     time_of_last_step: u32,
@@ -99,6 +134,13 @@ pub struct Mesh {
 
     /// List of devices for which this device is a partner.
     partners_of: Vec<hardware_interface::UwbAddress>,
+
+    next_ogm_sequence_number: u32,
+
+    /// Maps received OGM messages to their age in milliseconds. This is used to determine when to discard old OGMs.
+    received_ogm_to_age_in_ms: HashMap<UwbAddressAndSequenceNumber, u32>, // TODO: Perhaps replace with something more memory efficient.
+
+    routing_table: HashMap<hardware_interface::UwbAddress, hardware_interface::UwbAddress>,
 }
 
 impl Mesh {
@@ -115,6 +157,9 @@ impl Mesh {
             outgoing_message_handler: OutgoingMessageHandler::new(),
             partners: Vec::new(),
             partners_of: Vec::new(),
+            next_ogm_sequence_number: 0,
+            received_ogm_to_age_in_ms: HashMap::new(),
+            routing_table: HashMap::new(),
         }
     }
 
@@ -230,37 +275,51 @@ impl Mesh {
                     self.send_partner_request(&partner);
                 }
             }
+
+            self.age_received_ogms(10);
         }
     }
 
     fn receive_messages(&mut self) {
-        let mut hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+        // Drain the queue first so the hardware interface lock is not held while
+        // calling other &mut self methods (get_adjacent_devices, forward_ogm, etc.).
+        let incoming_messages: Vec<_> = {
+            let mut hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+            let mut messages = Vec::new();
+            while let Some(msg) = hi.get_incoming_message() {
+                messages.push(msg);
+            }
+            messages
+        };
 
-        while let Some(incoming_message) = hi.get_incoming_message() {
+        for incoming_message in incoming_messages {
             if let Some(message) = Message::from_data(&incoming_message.data) {
                 match message {
                     Message::ProbeRequest {} => {
-                        hi.printf(format_args!(
-                            "Received probe message from {}\n",
-                            incoming_message.source
-                        ));
-
-                        let message = Message::ProbeResponse {};
-                        let data = message.to_data();
-                        let time_until_send_in_ms = hi.generate_random_integer() % 50 * 10 + 10;
+                        let time_until_send_in_ms = {
+                            let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+                            hi.printf(format_args!(
+                                "Received probe message from {}\n",
+                                incoming_message.source
+                            ));
+                            hi.generate_random_integer() % 50 * 10 + 10
+                        };
 
                         let outgoing_message = OutgoingMessage {
                             destination: incoming_message.source,
-                            data,
+                            data: Message::ProbeResponse {}.to_data(),
                             time_to_send_in_ms: time_until_send_in_ms as i32,
                         };
                         self.outgoing_message_handler.add_message(outgoing_message);
                     }
                     Message::ProbeResponse {} => {
-                        hi.printf(format_args!(
-                            "Received probe response from {}\n",
-                            incoming_message.source
-                        ));
+                        {
+                            let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+                            hi.printf(format_args!(
+                                "Received probe response from {}\n",
+                                incoming_message.source
+                            ));
+                        }
 
                         if let MeshStage::InitConnections {
                             time_until_done_in_ms: _,
@@ -274,17 +333,68 @@ impl Mesh {
                         }
                     }
                     Message::PartnerRequest {} => {
-                        hi.printf(format_args!(
-                            "Received partner request from {}\n",
-                            incoming_message.source
-                        ));
+                        {
+                            let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+                            hi.printf(format_args!(
+                                "Received partner request from {}\n",
+                                incoming_message.source
+                            ));
+                        }
 
                         if !self.partners_of.contains(&incoming_message.source) {
                             self.partners_of.push(incoming_message.source);
                         }
                     }
+                    Message::Ogm {
+                        source,
+                        sequence_number,
+                    } => {
+                        {
+                            let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+                            hi.printf(format_args!(
+                                "Received OGM from {} with sequence number {}\n",
+                                source, sequence_number
+                            ));
+                        }
+
+                        let key = UwbAddressAndSequenceNumber {
+                            address: source.clone(),
+                            sequence_number,
+                        };
+                        if self.received_ogm_to_age_in_ms.contains_key(&key) {
+                            let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+                            hi.printf(format_args!(
+                                "Already received OGM from {} with sequence number {}, ignoring\n",
+                                source, sequence_number
+                            ));
+                            continue;
+                        }
+                        self.received_ogm_to_age_in_ms.insert(key, 0);
+
+                        if !self.routing_table.contains_key(&source)
+                            || self.routing_table[&source] != incoming_message.source
+                        {
+                            let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+                            hi.printf(format_args!(
+                                "Updating routing table: {} -> {}\n",
+                                source, incoming_message.source
+                            ));
+
+                            self.routing_table
+                                .insert(source.clone(), incoming_message.source.clone());
+                        }
+
+                        let adjacent_devices = self.get_adjacent_devices();
+                        for device in adjacent_devices {
+                            if device == source {
+                                continue;
+                            }
+                            self.forward_ogm(&device, source.clone(), sequence_number);
+                        }
+                    }
                 }
             } else {
+                let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
                 hi.printf(format_args!(
                     "Received unknown message from {}: {:?}\n",
                     incoming_message.source, incoming_message.data
@@ -321,5 +431,74 @@ impl Mesh {
             time_to_send_in_ms: time_until_send_in_ms as i32,
         };
         self.outgoing_message_handler.add_message(outgoing_message);
+    }
+
+    fn get_adjacent_devices(&self) -> Vec<hardware_interface::UwbAddress> {
+        let mut adjacent_devices = self.partners.clone();
+        adjacent_devices.extend(self.partners_of.clone());
+        adjacent_devices
+    }
+
+    pub fn send_ogm(&mut self) {
+        let adjacent_devices = self.get_adjacent_devices();
+        for device in adjacent_devices {
+            let message = Message::Ogm {
+                source: self
+                    .hardware_interface
+                    .as_ref()
+                    .unwrap()
+                    .lock()
+                    .unwrap()
+                    .get_uwb_address(),
+                sequence_number: self.next_ogm_sequence_number,
+            };
+            let data = message.to_data();
+            let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+            let time_until_send_in_ms = hi.generate_random_integer() % 2 * 10;
+
+            let outgoing_message = OutgoingMessage {
+                destination: device,
+                data,
+                time_to_send_in_ms: time_until_send_in_ms as i32,
+            };
+            self.outgoing_message_handler.add_message(outgoing_message);
+        }
+
+        self.next_ogm_sequence_number = self.next_ogm_sequence_number.wrapping_add(1);
+    }
+
+    fn forward_ogm(
+        &mut self,
+        destination: &hardware_interface::UwbAddress,
+        source: hardware_interface::UwbAddress,
+        sequence_number: u32,
+    ) {
+        let message = Message::Ogm {
+            source,
+            sequence_number,
+        };
+        let data = message.to_data();
+        let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+        let time_until_send_in_ms = hi.generate_random_integer() % 2 * 10;
+
+        let outgoing_message = OutgoingMessage {
+            destination: destination.clone(),
+            data,
+            time_to_send_in_ms: time_until_send_in_ms as i32,
+        };
+        self.outgoing_message_handler.add_message(outgoing_message);
+    }
+
+    fn age_received_ogms(&mut self, time_passed_in_ms: u32) {
+        self.received_ogm_to_age_in_ms.retain(|_, age| {
+            *age += time_passed_in_ms;
+            *age <= 10000
+        });
+    }
+
+    pub fn get_routing_table(
+        &self,
+    ) -> HashMap<hardware_interface::UwbAddress, hardware_interface::UwbAddress> {
+        self.routing_table.clone()
     }
 }

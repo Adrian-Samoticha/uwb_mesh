@@ -10,7 +10,7 @@ pub enum HardwareError {
     SoftwareBug,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UwbAddress {
     Short(u16),
     Extended([u8; 8]),
