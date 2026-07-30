@@ -11,6 +11,11 @@ enum Message {
         source: UwbAddress,
         sequence_number: u32,
     },
+    Unicast {
+        source: UwbAddress,
+        destination: UwbAddress,
+        data: Vec<u8>,
+    },
 }
 
 impl Message {
@@ -27,6 +32,17 @@ impl Message {
                 data.extend_from_slice(&source.bytes());
                 data.extend_from_slice(&sequence_number.to_be_bytes());
                 data
+            }
+            Message::Unicast {
+                source,
+                destination,
+                data,
+            } => {
+                let mut result = vec![0x05];
+                result.extend_from_slice(&source.bytes());
+                result.extend_from_slice(&destination.bytes());
+                result.extend_from_slice(data);
+                result
             }
         }
     }
@@ -53,6 +69,22 @@ impl Message {
                 Some(Message::Ogm {
                     source,
                     sequence_number,
+                })
+            }
+            Some(0x05) => {
+                if data.len() < 1 + 8 + 8 {
+                    return None;
+                }
+                let source_bytes = &data[1..9];
+                let destination_bytes = &data[9..17];
+                let source = UwbAddress::Extended(source_bytes.try_into().ok()?);
+                let destination = UwbAddress::Extended(destination_bytes.try_into().ok()?);
+                let payload = data[17..].to_vec();
+
+                Some(Message::Unicast {
+                    source,
+                    destination,
+                    data: payload,
                 })
             }
             _ => None,
@@ -384,6 +416,51 @@ impl Mesh {
                             self.forward_ogm(&device, source.clone(), sequence_number);
                         }
                     }
+                    Message::Unicast {
+                        source,
+                        destination,
+                        data,
+                    } => {
+                        let is_addressed_to_me = {
+                            let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+                            destination == hi.get_uwb_address()
+                        };
+
+                        if is_addressed_to_me {
+                            let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+                            hi.printf(format_args!(
+                                "Received unicast message from {}: {:?}\n",
+                                source, data
+                            ));
+                        } else {
+                            let next_hop = self.routing_table.get(&destination);
+                            if let Some(next_hop) = next_hop {
+                                let outgoing_message = OutgoingMessage {
+                                    destination: next_hop.clone(),
+                                    data: Message::Unicast {
+                                        source: source.clone(),
+                                        destination: destination.clone(),
+                                        data,
+                                    }
+                                    .to_data(),
+                                    time_to_send_in_ms: 0,
+                                };
+                                self.outgoing_message_handler.add_message(outgoing_message);
+
+                                let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+                                hi.printf(format_args!(
+                                    "Forwarding unicast message from {} to {} via next hop {}\n",
+                                    source, destination, next_hop
+                                ));
+                            } else {
+                                let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+                                hi.printf(format_args!(
+                                    "No route to {} for unicast message from {}, dropping\n",
+                                    destination, source
+                                ));
+                            }
+                        }
+                    }
                 }
             } else {
                 let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
@@ -492,5 +569,37 @@ impl Mesh {
         &self,
     ) -> HashMap<hardware_interface::UwbAddress, hardware_interface::UwbAddress> {
         self.routing_table.clone()
+    }
+
+    pub fn send_unicast(&mut self, destination: hardware_interface::UwbAddress, data: Vec<u8>) {
+        let own_address = self
+            .hardware_interface
+            .as_ref()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .get_uwb_address();
+
+        let message = Message::Unicast {
+            source: own_address,
+            destination: destination.clone(),
+            data,
+        };
+        let data = message.to_data();
+        let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+        let time_until_send_in_ms = hi.generate_random_integer() % 2 * 10;
+
+        let immediate_destination = if let Some(next_hop) = self.routing_table.get(&destination) {
+            next_hop.clone()
+        } else {
+            destination.clone()
+        };
+
+        let outgoing_message = OutgoingMessage {
+            destination: immediate_destination,
+            data,
+            time_to_send_in_ms: time_until_send_in_ms as i32,
+        };
+        self.outgoing_message_handler.add_message(outgoing_message);
     }
 }

@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    hint,
+    sync::{Arc, Mutex},
+};
 
 use crate::{
     device::mesh,
@@ -74,6 +77,24 @@ impl Firmware {
         }
     }
 
+    fn parse_address(&self, address_str: &str) -> Option<hardware_interface::UwbAddress> {
+        if address_str.starts_with("0x") {
+            let addr = u16::from_str_radix(&address_str[2..], 16).ok()?;
+            Some(hardware_interface::UwbAddress::Short(addr))
+        } else {
+            let separator = ':';
+            let parts: Vec<&str> = address_str.split(separator).collect();
+            if parts.len() != 8 {
+                return Some(hardware_interface::UwbAddress::Short(0));
+            }
+            let mut addr = [0u8; 8];
+            for i in 0..8 {
+                addr[i] = u8::from_str_radix(parts[i], 16).unwrap_or(0);
+            }
+            Some(hardware_interface::UwbAddress::Extended(addr))
+        }
+    }
+
     fn execute_serial_command(&mut self, command: &str) {
         let command = command.trim();
         let parts: Vec<&str> = command.split_whitespace().collect();
@@ -82,6 +103,9 @@ impl Firmware {
         match cmd_name {
             "send_ogm" => {
                 self.mesh.send_ogm();
+
+                let hi = self.hardware_interface.as_mut().unwrap();
+                hi.lock().unwrap().printf(format_args!("Sent OGM\n"));
             }
             "print_rt" => {
                 let routing_table = self.mesh.get_routing_table();
@@ -93,6 +117,36 @@ impl Firmware {
                         dest, next_hop
                     ));
                 }
+            }
+            "send_unicast" => {
+                if parts.len() < 3 {
+                    let hi = self.hardware_interface.as_mut().unwrap();
+                    hi.lock().unwrap().printf(format_args!(
+                        "Usage: send_unicast <destination> <message>\n"
+                    ));
+                    return;
+                }
+                let destination_str = parts[1];
+                let message = parts[2..].join(" ");
+
+                let destination = self.parse_address(destination_str);
+                if destination.is_none() {
+                    let hi = self.hardware_interface.as_mut().unwrap();
+                    hi.lock().unwrap().printf(format_args!(
+                        "Invalid destination address: {}\n",
+                        destination_str
+                    ));
+                    return;
+                }
+
+                self.mesh
+                    .send_unicast(destination.unwrap(), message.as_bytes().to_vec());
+
+                let hint = self.hardware_interface.as_mut().unwrap();
+                hint.lock().unwrap().printf(format_args!(
+                    "Sent unicast message to {}: {}\n",
+                    destination_str, message
+                ));
             }
             _ => {
                 let hi = self.hardware_interface.as_mut().unwrap();
