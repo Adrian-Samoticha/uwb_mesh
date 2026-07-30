@@ -333,14 +333,6 @@ impl Mesh {
                         }
                     }
                     Message::PartnerRequest {} => {
-                        {
-                            let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
-                            hi.printf(format_args!(
-                                "Received partner request from {}\n",
-                                incoming_message.source
-                            ));
-                        }
-
                         if !self.partners_of.contains(&incoming_message.source) {
                             self.partners_of.push(incoming_message.source);
                         }
