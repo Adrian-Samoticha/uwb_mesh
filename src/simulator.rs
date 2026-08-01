@@ -311,7 +311,7 @@ impl Simulator {
         while x < bottom_right_corner.x {
             let mut current_line_thickness = thickness;
             if x.abs() < 0.01 {
-                current_line_thickness *= 1.5;
+                current_line_thickness *= 2.0;
             }
 
             let position_on_screen =
