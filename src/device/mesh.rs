@@ -134,7 +134,7 @@ impl OutgoingMessageHandler {
 
             if message.time_to_send_in_ms <= 0 {
                 ready_messages.push(OutgoingMessage {
-                    destination: message.destination.clone(),
+                    destination: message.destination,
                     data: message.data.clone(),
                     time_to_send_in_ms: 0,
                 });
@@ -286,7 +286,7 @@ impl Mesh {
                 let number_of_partners = if random_number < 10 { 2 } else { 1 };
                 for i in 0..number_of_partners {
                     if let Some(partner) = found_devices.get(i) {
-                        self.partners.push(partner.clone());
+                        self.partners.push(*partner);
                     }
                 }
 
@@ -390,7 +390,7 @@ impl Mesh {
                         }
 
                         let key = UwbAddressAndSequenceNumber {
-                            address: source.clone(),
+                            address: source,
                             sequence_number,
                         };
                         if self
@@ -431,8 +431,7 @@ impl Mesh {
                                 source, incoming_message.source
                             ));
 
-                            self.routing_table
-                                .insert(source.clone(), incoming_message.source.clone());
+                            self.routing_table.insert(source, incoming_message.source);
                         }
 
                         let adjacent_devices = self.get_adjacent_devices();
@@ -440,7 +439,7 @@ impl Mesh {
                             if device == source {
                                 continue;
                             }
-                            self.forward_ogm(&device, source.clone(), sequence_number);
+                            self.forward_ogm(&device, source, sequence_number);
                         }
                     }
                     Message::Unicast {
@@ -463,10 +462,10 @@ impl Mesh {
                             let next_hop = self.routing_table.get(&destination);
                             if let Some(next_hop) = next_hop {
                                 let outgoing_message = OutgoingMessage {
-                                    destination: next_hop.clone(),
+                                    destination: *next_hop,
                                     data: Message::Unicast {
-                                        source: source.clone(),
-                                        destination: destination.clone(),
+                                        source,
+                                        destination,
                                         data,
                                     }
                                     .to_data(),
@@ -522,7 +521,7 @@ impl Mesh {
         let time_until_send_in_ms = hi.generate_random_integer() % 10 * 10;
 
         let outgoing_message = OutgoingMessage {
-            destination: partner.clone(),
+            destination: *partner,
             data,
             time_to_send_in_ms: time_until_send_in_ms as i32,
         };
@@ -578,7 +577,7 @@ impl Mesh {
         let time_until_send_in_ms = hi.generate_random_integer() % 2 * 10;
 
         let outgoing_message = OutgoingMessage {
-            destination: destination.clone(),
+            destination: *destination,
             data,
             time_to_send_in_ms: time_until_send_in_ms as i32,
         };
@@ -608,7 +607,7 @@ impl Mesh {
 
         let message = Message::Unicast {
             source: own_address,
-            destination: destination.clone(),
+            destination,
             data,
         };
         let data = message.to_data();
@@ -616,9 +615,9 @@ impl Mesh {
         let time_until_send_in_ms = hi.generate_random_integer() % 2 * 10;
 
         let immediate_destination = if let Some(next_hop) = self.routing_table.get(&destination) {
-            next_hop.clone()
+            *next_hop
         } else {
-            destination.clone()
+            destination
         };
 
         let outgoing_message = OutgoingMessage {
