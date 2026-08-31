@@ -1,7 +1,9 @@
+extern crate alloc;
+use alloc::vec::Vec;
 use std::sync::{Arc, Mutex};
 
 use crate::interfaces::hardware_interface::{self, UwbAddress, UwbAddressImpl};
-use std::collections::HashMap;
+use std::collections::HashMap; // TODO: Replace with [T; N]
 
 enum Message {
     ProbeRequest {},
@@ -145,7 +147,7 @@ impl OutgoingMessageHandler {
     }
 }
 
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Eq, Hash, PartialEq, Clone, Copy)]
 struct UwbAddressAndSequenceNumber {
     address: hardware_interface::UwbAddress,
     sequence_number: u32,
@@ -170,7 +172,7 @@ pub struct Mesh {
     next_ogm_sequence_number: u32,
 
     /// Maps received OGM messages to their age in milliseconds. This is used to determine when to discard old OGMs.
-    received_ogm_to_age_in_ms: HashMap<UwbAddressAndSequenceNumber, u32>, // TODO: Perhaps replace with something more memory efficient.
+    received_ogm_to_age_in_ms: [(UwbAddressAndSequenceNumber, u32); 4],
 
     routing_table: HashMap<hardware_interface::UwbAddress, hardware_interface::UwbAddress>,
 }
@@ -190,7 +192,13 @@ impl Mesh {
             partners: Vec::new(),
             partners_of: Vec::new(),
             next_ogm_sequence_number: 0,
-            received_ogm_to_age_in_ms: HashMap::new(),
+            received_ogm_to_age_in_ms: [(
+                UwbAddressAndSequenceNumber {
+                    address: hardware_interface::UwbAddress::Short(0),
+                    sequence_number: 0,
+                },
+                0,
+            ); 4],
             routing_table: HashMap::new(),
         }
     }
@@ -385,7 +393,11 @@ impl Mesh {
                             address: source.clone(),
                             sequence_number,
                         };
-                        if self.received_ogm_to_age_in_ms.contains_key(&key) {
+                        if self
+                            .received_ogm_to_age_in_ms
+                            .iter()
+                            .any(|(k, _)| k == &key)
+                        {
                             let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
                             hi.printf(format_args!(
                                 "Already received OGM from {} with sequence number {}, ignoring\n",
@@ -393,7 +405,22 @@ impl Mesh {
                             ));
                             continue;
                         }
-                        self.received_ogm_to_age_in_ms.insert(key, 0);
+                        if let Some(slot) =
+                            self.received_ogm_to_age_in_ms.iter_mut().find(|(k, age)| {
+                                (k.address == hardware_interface::UwbAddress::Short(0)
+                                    && k.sequence_number == 0)
+                                    || *age > 10000
+                            })
+                        {
+                            *slot = (key, 0);
+                        } else {
+                            let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+                            hi.printf(format_args!(
+                                "No available slot for OGM from {} with sequence number {}, ignoring\n",
+                                source, sequence_number
+                            ));
+                            continue;
+                        }
 
                         if !self.routing_table.contains_key(&source)
                             || self.routing_table[&source] != incoming_message.source
@@ -559,10 +586,9 @@ impl Mesh {
     }
 
     fn age_received_ogms(&mut self, time_passed_in_ms: u32) {
-        self.received_ogm_to_age_in_ms.retain(|_, age| {
-            *age += time_passed_in_ms;
-            *age <= 10000
-        });
+        for (_, age) in self.received_ogm_to_age_in_ms.iter_mut() {
+            *age = age.saturating_add(time_passed_in_ms);
+        }
     }
 
     pub fn get_routing_table(

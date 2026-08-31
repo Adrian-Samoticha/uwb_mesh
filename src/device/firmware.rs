@@ -1,7 +1,6 @@
-use std::{
-    hint,
-    sync::{Arc, Mutex},
-};
+extern crate alloc;
+use alloc::{string::String, vec::Vec};
+use std::sync::{Arc, Mutex};
 
 use crate::{
     device::mesh,
