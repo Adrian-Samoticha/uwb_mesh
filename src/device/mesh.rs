@@ -1,6 +1,7 @@
 extern crate alloc;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
-use std::sync::{Arc, Mutex};
+use spin::Mutex;
 
 use crate::device::array_map::ArrayMap;
 use crate::interfaces::hardware_interface::{self, UwbAddress, UwbAddressImpl};
@@ -204,7 +205,7 @@ impl Mesh {
     }
 
     fn randomize_time_until_broadcast(&mut self) {
-        let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+        let hi = self.hardware_interface.as_ref().unwrap().lock();
         let random_value = (hi.generate_random_integer() % 50) * 10 + 10;
 
         if let MeshStage::InitConnections {
@@ -225,7 +226,7 @@ impl Mesh {
 
         let hi = self.hardware_interface.as_ref().unwrap();
 
-        hi.lock().unwrap().init_messages();
+        hi.lock().init_messages();
 
         self.randomize_time_until_broadcast();
     }
@@ -236,7 +237,7 @@ impl Mesh {
         self.receive_messages();
 
         loop {
-            let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+            let hi = self.hardware_interface.as_ref().unwrap().lock();
             let elapsed = hi.millis() - self.time_of_last_step;
             drop(hi);
 
@@ -257,7 +258,7 @@ impl Mesh {
             .process_messages(10)
             .into_iter()
             .for_each(|message| {
-                let mut hi = self.hardware_interface.as_mut().unwrap().lock().unwrap();
+                let mut hi = self.hardware_interface.as_mut().unwrap().lock();
                 hi.send_message(message.destination, &message.data);
                 drop(hi);
             });
@@ -281,7 +282,7 @@ impl Mesh {
             }
 
             if *time_until_done_in_ms <= 0 {
-                let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+                let hi = self.hardware_interface.as_ref().unwrap().lock();
                 let random_number = hi.generate_random_integer() % 100;
                 let number_of_partners = if random_number < 10 { 2 } else { 1 };
                 for i in 0..number_of_partners {
@@ -301,7 +302,7 @@ impl Mesh {
         }
 
         if should_broadcast_probe {
-            let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+            let hi = self.hardware_interface.as_ref().unwrap().lock();
             hi.printf(format_args!("Broadcasting probe message\n"));
             drop(hi);
 
@@ -324,7 +325,7 @@ impl Mesh {
         // Drain the queue first so the hardware interface lock is not held while
         // calling other &mut self methods (get_adjacent_devices, forward_ogm, etc.).
         let incoming_messages: Vec<_> = {
-            let mut hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+            let mut hi = self.hardware_interface.as_ref().unwrap().lock();
             let mut messages = Vec::new();
             while let Some(msg) = hi.get_incoming_message() {
                 messages.push(msg);
@@ -337,7 +338,7 @@ impl Mesh {
                 match message {
                     Message::ProbeRequest {} => {
                         let time_until_send_in_ms = {
-                            let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+                            let hi = self.hardware_interface.as_ref().unwrap().lock();
                             hi.printf(format_args!(
                                 "Received probe message from {}\n",
                                 incoming_message.source
@@ -354,7 +355,7 @@ impl Mesh {
                     }
                     Message::ProbeResponse {} => {
                         {
-                            let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+                            let hi = self.hardware_interface.as_ref().unwrap().lock();
                             hi.printf(format_args!(
                                 "Received probe response from {}\n",
                                 incoming_message.source
@@ -382,7 +383,7 @@ impl Mesh {
                         sequence_number,
                     } => {
                         {
-                            let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+                            let hi = self.hardware_interface.as_ref().unwrap().lock();
                             hi.printf(format_args!(
                                 "Received OGM from {} with sequence number {}\n",
                                 source, sequence_number
@@ -398,7 +399,7 @@ impl Mesh {
                             .iter()
                             .any(|(k, _)| k == &key)
                         {
-                            let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+                            let hi = self.hardware_interface.as_ref().unwrap().lock();
                             hi.printf(format_args!(
                                 "Already received OGM from {} with sequence number {}, ignoring\n",
                                 source, sequence_number
@@ -414,7 +415,7 @@ impl Mesh {
                         {
                             *slot = (key, 0);
                         } else {
-                            let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+                            let hi = self.hardware_interface.as_ref().unwrap().lock();
                             hi.printf(format_args!(
                                 "No available slot for OGM from {} with sequence number {}, ignoring\n",
                                 source, sequence_number
@@ -425,7 +426,7 @@ impl Mesh {
                         if !self.routing_table.contains_key(&source)
                             || self.routing_table[&source] != incoming_message.source
                         {
-                            let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+                            let hi = self.hardware_interface.as_ref().unwrap().lock();
                             hi.printf(format_args!(
                                 "Updating routing table: {} -> {}\n",
                                 source, incoming_message.source
@@ -448,12 +449,12 @@ impl Mesh {
                         data,
                     } => {
                         let is_addressed_to_me = {
-                            let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+                            let hi = self.hardware_interface.as_ref().unwrap().lock();
                             destination == hi.get_uwb_address()
                         };
 
                         if is_addressed_to_me {
-                            let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+                            let hi = self.hardware_interface.as_ref().unwrap().lock();
                             hi.printf(format_args!(
                                 "Received unicast message from {}: {:?}\n",
                                 source, data
@@ -473,13 +474,13 @@ impl Mesh {
                                 };
                                 self.outgoing_message_handler.add_message(outgoing_message);
 
-                                let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+                                let hi = self.hardware_interface.as_ref().unwrap().lock();
                                 hi.printf(format_args!(
                                     "Forwarding unicast message from {} to {} via next hop {}\n",
                                     source, destination, next_hop
                                 ));
                             } else {
-                                let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+                                let hi = self.hardware_interface.as_ref().unwrap().lock();
                                 hi.printf(format_args!(
                                     "No route to {} for unicast message from {}, dropping\n",
                                     destination, source
@@ -489,7 +490,7 @@ impl Mesh {
                     }
                 }
             } else {
-                let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+                let hi = self.hardware_interface.as_ref().unwrap().lock();
                 hi.printf(format_args!(
                     "Received unknown message from {}: {:?}\n",
                     incoming_message.source, incoming_message.data
@@ -514,7 +515,7 @@ impl Mesh {
     }
 
     fn send_partner_request(&mut self, partner: &hardware_interface::UwbAddress) {
-        let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+        let hi = self.hardware_interface.as_ref().unwrap().lock();
 
         let message = Message::PartnerRequest {};
         let data = message.to_data();
@@ -543,12 +544,11 @@ impl Mesh {
                     .as_ref()
                     .unwrap()
                     .lock()
-                    .unwrap()
                     .get_uwb_address(),
                 sequence_number: self.next_ogm_sequence_number,
             };
             let data = message.to_data();
-            let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+            let hi = self.hardware_interface.as_ref().unwrap().lock();
             let time_until_send_in_ms = hi.generate_random_integer() % 2 * 10;
 
             let outgoing_message = OutgoingMessage {
@@ -573,7 +573,7 @@ impl Mesh {
             sequence_number,
         };
         let data = message.to_data();
-        let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+        let hi = self.hardware_interface.as_ref().unwrap().lock();
         let time_until_send_in_ms = hi.generate_random_integer() % 2 * 10;
 
         let outgoing_message = OutgoingMessage {
@@ -602,7 +602,6 @@ impl Mesh {
             .as_ref()
             .unwrap()
             .lock()
-            .unwrap()
             .get_uwb_address();
 
         let message = Message::Unicast {
@@ -611,7 +610,7 @@ impl Mesh {
             data,
         };
         let data = message.to_data();
-        let hi = self.hardware_interface.as_ref().unwrap().lock().unwrap();
+        let hi = self.hardware_interface.as_ref().unwrap().lock();
         let time_until_send_in_ms = hi.generate_random_integer() % 2 * 10;
 
         let immediate_destination = if let Some(next_hop) = self.routing_table.get(&destination) {

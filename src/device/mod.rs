@@ -1,5 +1,8 @@
+extern crate alloc;
+use alloc::sync::Arc;
+use spin::Mutex;
+use std::sync::Weak;
 use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::{Arc, Mutex, Weak};
 
 pub type Id = u64;
 

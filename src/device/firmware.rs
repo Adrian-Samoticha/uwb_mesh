@@ -1,6 +1,7 @@
 extern crate alloc;
+use alloc::sync::Arc;
 use alloc::{string::String, vec::Vec};
-use std::sync::{Arc, Mutex};
+use spin::Mutex;
 
 use crate::{
     device::mesh,
@@ -34,13 +35,13 @@ impl Firmware {
     ) {
         self.name = name.to_string();
         self.model = model.to_string();
-        self.hardware_interface = Some(hardware_interface);
+        self.hardware_interface = Some(Arc::clone(&hardware_interface));
 
         let hi = self.hardware_interface.as_mut().unwrap();
 
-        hi.lock().unwrap().printf(format_args!("Hello World!\n"));
+        hi.lock().printf(format_args!("Hello World!\n"));
 
-        self.mesh.init(self.hardware_interface.clone().unwrap());
+        self.mesh.init(hardware_interface);
     }
 
     pub fn heartbeat(&mut self) {
@@ -52,7 +53,7 @@ impl Firmware {
     fn handle_serial_input(&mut self) {
         let chars: Vec<char> = {
             if let Some(hi) = &self.hardware_interface {
-                let hi = hi.lock().unwrap();
+                let hi = hi.lock();
                 let mut chars = Vec::new();
                 while hi.is_serial_input_available() {
                     if let Some(c) = hi.read_char_over_serial() {
@@ -104,14 +105,14 @@ impl Firmware {
                 self.mesh.send_ogm();
 
                 let hi = self.hardware_interface.as_mut().unwrap();
-                hi.lock().unwrap().printf(format_args!("Sent OGM\n"));
+                hi.lock().printf(format_args!("Sent OGM\n"));
             }
             "print_rt" => {
                 let routing_table = self.mesh.get_routing_table();
                 let hi = self.hardware_interface.as_mut().unwrap();
-                hi.lock().unwrap().printf(format_args!("Routing Table:\n"));
+                hi.lock().printf(format_args!("Routing Table:\n"));
                 for (dest, next_hop) in routing_table.iter() {
-                    hi.lock().unwrap().printf(format_args!(
+                    hi.lock().printf(format_args!(
                         "Destination: {:?}, Next Hop: {:?}\n",
                         dest, next_hop
                     ));
@@ -120,7 +121,7 @@ impl Firmware {
             "send_unicast" => {
                 if parts.len() < 3 {
                     let hi = self.hardware_interface.as_mut().unwrap();
-                    hi.lock().unwrap().printf(format_args!(
+                    hi.lock().printf(format_args!(
                         "Usage: send_unicast <destination> <message>\n"
                     ));
                     return;
@@ -131,7 +132,7 @@ impl Firmware {
                 let destination = self.parse_address(destination_str);
                 if destination.is_none() {
                     let hi = self.hardware_interface.as_mut().unwrap();
-                    hi.lock().unwrap().printf(format_args!(
+                    hi.lock().printf(format_args!(
                         "Invalid destination address: {}\n",
                         destination_str
                     ));
@@ -142,22 +143,20 @@ impl Firmware {
                     .send_unicast(destination.unwrap(), message.as_bytes().to_vec());
 
                 let hint = self.hardware_interface.as_mut().unwrap();
-                hint.lock().unwrap().printf(format_args!(
+                hint.lock().printf(format_args!(
                     "Sent unicast message to {}: {}\n",
                     destination_str, message
                 ));
             }
             "print_uwb_address" => {
                 let hi = self.hardware_interface.as_mut().unwrap();
-                let address = hi.lock().unwrap().get_uwb_address();
+                let address = hi.lock().get_uwb_address();
                 hi.lock()
-                    .unwrap()
                     .printf(format_args!("UWB Address: {:?}\n", address));
             }
             _ => {
                 let hi = self.hardware_interface.as_mut().unwrap();
                 hi.lock()
-                    .unwrap()
                     .printf(format_args!("Unknown command: {}\n", command));
             }
         }
