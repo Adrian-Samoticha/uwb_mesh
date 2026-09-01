@@ -1,5 +1,5 @@
 use core::fmt;
-use std::fmt::Arguments;
+use core::fmt::Arguments;
 use std::thread;
 use std::time::Duration;
 
