@@ -6,6 +6,7 @@ pub type Id = u64;
 use crate::interfaces::hardware_interface_simulator_impl::HardwareInterfaceSimulatorImpl;
 use crate::simulator::SimulatorMutex;
 
+mod array_map;
 mod firmware;
 mod mesh;
 

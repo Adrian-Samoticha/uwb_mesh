@@ -110,7 +110,7 @@ impl Firmware {
                 let routing_table = self.mesh.get_routing_table();
                 let hi = self.hardware_interface.as_mut().unwrap();
                 hi.lock().unwrap().printf(format_args!("Routing Table:\n"));
-                for (dest, next_hop) in routing_table {
+                for (dest, next_hop) in routing_table.iter() {
                     hi.lock().unwrap().printf(format_args!(
                         "Destination: {:?}, Next Hop: {:?}\n",
                         dest, next_hop

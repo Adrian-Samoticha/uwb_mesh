@@ -2,8 +2,8 @@ extern crate alloc;
 use alloc::vec::Vec;
 use std::sync::{Arc, Mutex};
 
+use crate::device::array_map::ArrayMap;
 use crate::interfaces::hardware_interface::{self, UwbAddress, UwbAddressImpl};
-use std::collections::HashMap; // TODO: Replace with [T; N]
 
 enum Message {
     ProbeRequest {},
@@ -174,7 +174,7 @@ pub struct Mesh {
     /// Maps received OGM messages to their age in milliseconds. This is used to determine when to discard old OGMs.
     received_ogm_to_age_in_ms: [(UwbAddressAndSequenceNumber, u32); 4],
 
-    routing_table: HashMap<hardware_interface::UwbAddress, hardware_interface::UwbAddress>,
+    routing_table: ArrayMap<hardware_interface::UwbAddress, hardware_interface::UwbAddress, 4>,
 }
 
 impl Mesh {
@@ -199,7 +199,7 @@ impl Mesh {
                 },
                 0,
             ); 4],
-            routing_table: HashMap::new(),
+            routing_table: ArrayMap::new([None; 4], [hardware_interface::UwbAddress::Short(0); 4]),
         }
     }
 
@@ -592,8 +592,8 @@ impl Mesh {
 
     pub fn get_routing_table(
         &self,
-    ) -> HashMap<hardware_interface::UwbAddress, hardware_interface::UwbAddress> {
-        self.routing_table.clone()
+    ) -> ArrayMap<hardware_interface::UwbAddress, hardware_interface::UwbAddress, 4> {
+        self.routing_table
     }
 
     pub fn send_unicast(&mut self, destination: hardware_interface::UwbAddress, data: Vec<u8>) {
