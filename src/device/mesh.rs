@@ -8,16 +8,15 @@ use crate::interfaces::hardware_interface::{self, UwbAddress, UwbAddressImpl};
 
 /// Represents a message that can be sent or received in the mesh network.
 enum Message {
-    /// A probe request message, used to discover other devices in the mesh network.
-    ProbeRequest {},
+    // /// A probe request message, used to discover other devices in the mesh network.
+    // ProbeRequest {},
 
-    /// A probe response message, sent in response to a probe request.
-    ProbeResponse {},
+    // /// A probe response message, sent in response to a probe request.
+    // ProbeResponse {},
 
-    /// A partner request message, used to establish a partnership between devices.
-    /// A partner is a device that has been dedicated as a network edge and is maintained as such.
-    PartnerRequest {},
-
+    // /// A partner request message, used to establish a partnership between devices.
+    // /// A partner is a device that has been dedicated as a network edge and is maintained as such.
+    // PartnerRequest {},
     /// An OGM (Originator Message) message, used for routing in the mesh network.
     Ogm {
         source: UwbAddress,
@@ -35,9 +34,9 @@ enum Message {
 impl Message {
     fn to_data(&self) -> Vec<u8> {
         match self {
-            Message::ProbeRequest {} => vec![0x01],
-            Message::ProbeResponse {} => vec![0x02],
-            Message::PartnerRequest {} => vec![0x03],
+            // Message::ProbeRequest {} => vec![0x01],
+            // Message::ProbeResponse {} => vec![0x02],
+            // Message::PartnerRequest {} => vec![0x03],
             Message::Ogm {
                 source,
                 sequence_number,
@@ -67,9 +66,9 @@ impl Message {
         }
 
         match data.first().copied() {
-            Some(0x01) => Some(Message::ProbeRequest {}),
-            Some(0x02) => Some(Message::ProbeResponse {}),
-            Some(0x03) => Some(Message::PartnerRequest {}),
+            // Some(0x01) => Some(Message::ProbeRequest {}),
+            // Some(0x02) => Some(Message::ProbeResponse {}),
+            // Some(0x03) => Some(Message::PartnerRequest {}),
             Some(0x04) => {
                 if data.len() < 1 + 8 + 4 {
                     return None;
@@ -106,18 +105,18 @@ impl Message {
     }
 }
 
-/// Represents the current stage of the mesh network.
-enum MeshStage {
-    /// The mesh network is in the process of initializing connections with other devices.
-    InitConnections {
-        time_until_done_in_ms: i32,
-        time_until_broadcast_in_ms: i32,
-        found_devices: Vec<hardware_interface::UwbAddress>,
-    },
+// /// Represents the current stage of the mesh network.
+// enum MeshStage {
+//     /// The mesh network is in the process of initializing connections with other devices.
+//     InitConnections {
+//         time_until_done_in_ms: i32,
+//         time_until_broadcast_in_ms: i32,
+//         found_devices: Vec<hardware_interface::UwbAddress>,
+//     },
 
-    /// The mesh network is running and maintaining connections with other devices.
-    Running,
-}
+//     /// The mesh network is running and maintaining connections with other devices.
+//     Running,
+// }
 
 /// An outgoing message that is scheduled to be sent after a certain delay.
 struct OutgoingMessage {
@@ -181,21 +180,19 @@ pub struct Mesh {
     /// The time in steps, where each step is 10 milliseconds.
     time_in_steps: u32,
 
-    /// The current stage of the mesh network.
-    stage: MeshStage,
-
+    // /// The current stage of the mesh network.
+    // stage: MeshStage,
     /// The outgoing message handler, which manages messages that are scheduled to be sent.
     outgoing_message_handler: OutgoingMessageHandler,
 
-    /// List of devices that have been found during the InitConnections stage
-    /// and have been dedicated as partners.
-    /// A partner is a device for which a network edge has been established and
-    /// is maintained.
-    partners: Vec<hardware_interface::UwbAddress>,
+    // /// List of devices that have been found during the InitConnections stage
+    // /// and have been dedicated as partners.
+    // /// A partner is a device for which a network edge has been established and
+    // /// is maintained.
+    // partners: Vec<hardware_interface::UwbAddress>,
 
-    /// List of devices for which this device is a partner.
-    partners_of: Vec<hardware_interface::UwbAddress>,
-
+    // /// List of devices for which this device is a partner.
+    // partners_of: Vec<hardware_interface::UwbAddress>,
     /// The next sequence number to use for OGM messages.
     next_ogm_sequence_number: u32,
 
@@ -212,14 +209,14 @@ impl Mesh {
             hardware_interface: None,
             time_of_last_step: 0,
             time_in_steps: 0,
-            stage: MeshStage::InitConnections {
-                time_until_done_in_ms: 1000,
-                time_until_broadcast_in_ms: 0,
-                found_devices: Vec::new(),
-            },
+            // stage: MeshStage::InitConnections {
+            //     time_until_done_in_ms: 1000,
+            //     time_until_broadcast_in_ms: 0,
+            //     found_devices: Vec::new(),
+            // },
             outgoing_message_handler: OutgoingMessageHandler::new(),
-            partners: Vec::new(),
-            partners_of: Vec::new(),
+            // partners: Vec::new(),
+            // partners_of: Vec::new(),
             next_ogm_sequence_number: 0,
             received_ogm_to_age_in_ms: [(
                 UwbAddressAndSequenceNumber {
@@ -232,20 +229,20 @@ impl Mesh {
         }
     }
 
-    /// Randomizes the time until the next broadcast in the InitConnections stage.
-    fn randomize_time_until_broadcast(&mut self) {
-        let hi = self.hardware_interface.as_ref().unwrap().lock();
-        let random_value = (hi.generate_random_integer() % 50) * 10 + 10;
+    // /// Randomizes the time until the next broadcast in the InitConnections stage.
+    // fn randomize_time_until_broadcast(&mut self) {
+    //     let hi = self.hardware_interface.as_ref().unwrap().lock();
+    //     let random_value = (hi.generate_random_integer() % 50) * 10 + 10;
 
-        if let MeshStage::InitConnections {
-            time_until_done_in_ms: _,
-            time_until_broadcast_in_ms,
-            found_devices: _,
-        } = &mut self.stage
-        {
-            *time_until_broadcast_in_ms = random_value as i32;
-        }
-    }
+    //     if let MeshStage::InitConnections {
+    //         time_until_done_in_ms: _,
+    //         time_until_broadcast_in_ms,
+    //         found_devices: _,
+    //     } = &mut self.stage
+    //     {
+    //         *time_until_broadcast_in_ms = random_value as i32;
+    //     }
+    // }
 
     /// Initializes the mesh network with the given hardware interface.
     pub fn init(
@@ -258,7 +255,7 @@ impl Mesh {
 
         hi.lock().init_messages();
 
-        self.randomize_time_until_broadcast();
+        // self.randomize_time_until_broadcast();
     }
 
     /// Heartbeat method. To be called as often as possible.
@@ -284,7 +281,7 @@ impl Mesh {
 
     /// Called every 10 milliseconds to handle time-based events in the mesh network.
     fn on_10ms_passed(&mut self) {
-        let mut should_broadcast_probe = false;
+        // let mut should_broadcast_probe = false;
 
         self.outgoing_message_handler
             .process_messages(10)
@@ -295,59 +292,60 @@ impl Mesh {
                 drop(hi);
             });
 
-        if let MeshStage::InitConnections {
-            time_until_done_in_ms,
-            time_until_broadcast_in_ms,
-            found_devices,
-        } = &mut self.stage
-        {
-            if *time_until_done_in_ms > 0 {
-                *time_until_done_in_ms -= 10;
-            }
+        // if let MeshStage::InitConnections {
+        //     time_until_done_in_ms,
+        //     time_until_broadcast_in_ms,
+        //     found_devices,
+        // } = &mut self.stage
+        // {
+        //     if *time_until_done_in_ms > 0 {
+        //         *time_until_done_in_ms -= 10;
+        //     }
 
-            if *time_until_broadcast_in_ms > 0 {
-                *time_until_broadcast_in_ms -= 10;
+        //     if *time_until_broadcast_in_ms > 0 {
+        //         *time_until_broadcast_in_ms -= 10;
 
-                if *time_until_broadcast_in_ms <= 0 {
-                    should_broadcast_probe = true;
-                }
-            }
+        //         if *time_until_broadcast_in_ms <= 0 {
+        //             should_broadcast_probe = true;
+        //         }
+        //     }
 
-            if *time_until_done_in_ms <= 0 {
-                let hi = self.hardware_interface.as_ref().unwrap().lock();
-                let random_number = hi.generate_random_integer() % 100;
-                let number_of_partners = if random_number < 10 { 2 } else { 1 };
-                for i in 0..number_of_partners {
-                    if let Some(partner) = found_devices.get(i) {
-                        self.partners.push(*partner);
-                    }
-                }
+        //     if *time_until_done_in_ms <= 0 {
+        //         let hi = self.hardware_interface.as_ref().unwrap().lock();
+        //         let random_number = hi.generate_random_integer() % 100;
+        //         let number_of_partners = if random_number < 10 { 2 } else { 1 };
+        //         for i in 0..number_of_partners {
+        //             if let Some(partner) = found_devices.get(i) {
+        //                 self.partners.push(*partner);
+        //             }
+        //         }
 
-                hi.printf(format_args!(
-                    "InitConnections stage done. Found devices: {:?}; Partners: {:?}\n",
-                    found_devices, self.partners
-                ));
-                drop(hi);
+        //         hi.printf(format_args!(
+        //             "InitConnections stage done. Found devices: {:?}; Partners: {:?}\n",
+        //             found_devices, self.partners
+        //         ));
+        //         drop(hi);
 
-                self.stage = MeshStage::Running;
-            }
-        }
+        //         self.stage = MeshStage::Running;
+        //     }
+        // }
 
-        if should_broadcast_probe {
-            let hi = self.hardware_interface.as_ref().unwrap().lock();
-            hi.printf(format_args!("Broadcasting probe message\n"));
-            drop(hi);
+        // if should_broadcast_probe {
+        //     let hi = self.hardware_interface.as_ref().unwrap().lock();
+        //     hi.printf(format_args!("Broadcasting probe message\n"));
+        //     drop(hi);
 
-            self.broadcast_probe_request();
-        }
+        //     self.broadcast_probe_request();
+        // }
 
-        if let MeshStage::Running = &self.stage {
-            if self.time_in_steps % 500 == 0 {
-                let partners = self.partners.clone();
-                for partner in partners {
-                    self.send_partner_request(&partner);
-                }
-            }
+        // if let MeshStage::Running = &self.stage {
+        if true {
+            // if self.time_in_steps % 500 == 0 {
+            //     let partners = self.partners.clone();
+            //     for partner in partners {
+            //         self.send_partner_request(&partner);
+            //     }
+            // }
 
             self.age_received_ogms(10);
         }
@@ -369,48 +367,48 @@ impl Mesh {
         for incoming_message in incoming_messages {
             if let Some(message) = Message::from_data(&incoming_message.data) {
                 match message {
-                    Message::ProbeRequest {} => {
-                        let time_until_send_in_ms = {
-                            let hi = self.hardware_interface.as_ref().unwrap().lock();
-                            hi.printf(format_args!(
-                                "Received probe message from {}\n",
-                                incoming_message.source
-                            ));
-                            hi.generate_random_integer() % 50 * 10 + 10
-                        };
+                    // Message::ProbeRequest {} => {
+                    //     let time_until_send_in_ms = {
+                    //         let hi = self.hardware_interface.as_ref().unwrap().lock();
+                    //         hi.printf(format_args!(
+                    //             "Received probe message from {}\n",
+                    //             incoming_message.source
+                    //         ));
+                    //         hi.generate_random_integer() % 50 * 10 + 10
+                    //     };
 
-                        let outgoing_message = OutgoingMessage {
-                            destination: incoming_message.source,
-                            data: Message::ProbeResponse {}.to_data(),
-                            time_to_send_in_ms: time_until_send_in_ms as i32,
-                        };
-                        self.outgoing_message_handler.add_message(outgoing_message);
-                    }
-                    Message::ProbeResponse {} => {
-                        {
-                            let hi = self.hardware_interface.as_ref().unwrap().lock();
-                            hi.printf(format_args!(
-                                "Received probe response from {}\n",
-                                incoming_message.source
-                            ));
-                        }
+                    //     let outgoing_message = OutgoingMessage {
+                    //         destination: incoming_message.source,
+                    //         data: Message::ProbeResponse {}.to_data(),
+                    //         time_to_send_in_ms: time_until_send_in_ms as i32,
+                    //     };
+                    //     self.outgoing_message_handler.add_message(outgoing_message);
+                    // }
+                    // Message::ProbeResponse {} => {
+                    //     {
+                    //         let hi = self.hardware_interface.as_ref().unwrap().lock();
+                    //         hi.printf(format_args!(
+                    //             "Received probe response from {}\n",
+                    //             incoming_message.source
+                    //         ));
+                    //     }
 
-                        if let MeshStage::InitConnections {
-                            time_until_done_in_ms: _,
-                            time_until_broadcast_in_ms: _,
-                            found_devices,
-                        } = &mut self.stage
-                        {
-                            if !found_devices.contains(&incoming_message.source) {
-                                found_devices.push(incoming_message.source);
-                            }
-                        }
-                    }
-                    Message::PartnerRequest {} => {
-                        if !self.partners_of.contains(&incoming_message.source) {
-                            self.partners_of.push(incoming_message.source);
-                        }
-                    }
+                    //     // if let MeshStage::InitConnections {
+                    //     //     time_until_done_in_ms: _,
+                    //     //     time_until_broadcast_in_ms: _,
+                    //     //     found_devices,
+                    //     // } = &mut self.stage
+                    //     // {
+                    //     //     if !found_devices.contains(&incoming_message.source) {
+                    //     //         found_devices.push(incoming_message.source);
+                    //     //     }
+                    //     // }
+                    // }
+                    // Message::PartnerRequest {} => {
+                    //     if !self.partners_of.contains(&incoming_message.source) {
+                    //         self.partners_of.push(incoming_message.source);
+                    //     }
+                    // }
                     Message::Ogm {
                         source,
                         sequence_number,
@@ -468,13 +466,17 @@ impl Mesh {
                             self.routing_table.insert(source, incoming_message.source);
                         }
 
-                        let adjacent_devices = self.get_adjacent_devices();
-                        for device in adjacent_devices {
-                            if device == source {
-                                continue;
-                            }
-                            self.forward_ogm(&device, source, sequence_number);
-                        }
+                        // let adjacent_devices = self.get_adjacent_devices();
+                        // for device in adjacent_devices {
+                        //     if device == source {
+                        //         continue;
+                        //     }
+                        //     self.forward_ogm(&device, source, sequence_number);
+                        // }
+                        let broadcast_address = hardware_interface::UwbAddress::new(
+                            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                        );
+                        self.forward_ogm(&broadcast_address, source, sequence_number);
                     }
                     Message::Unicast {
                         source,
@@ -532,72 +534,76 @@ impl Mesh {
         }
     }
 
-    /// Broadcasts a probe request message to discover other devices in the mesh network.
-    fn broadcast_probe_request(&mut self) {
-        let message = Message::ProbeRequest {};
-        let data = message.to_data();
-        let broadcast_address =
-            hardware_interface::UwbAddress::new(0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff);
-        let time_until_send_in_ms = 0;
+    // /// Broadcasts a probe request message to discover other devices in the mesh network.
+    // fn broadcast_probe_request(&mut self) {
+    //     let message = Message::ProbeRequest {};
+    //     let data = message.to_data();
+    //     let broadcast_address =
+    //         hardware_interface::UwbAddress::new(0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff);
+    //     let time_until_send_in_ms = 0;
 
-        let outgoing_message = OutgoingMessage {
-            destination: broadcast_address,
-            data,
-            time_to_send_in_ms: time_until_send_in_ms,
-        };
-        self.outgoing_message_handler.add_message(outgoing_message);
-    }
+    //     let outgoing_message = OutgoingMessage {
+    //         destination: broadcast_address,
+    //         data,
+    //         time_to_send_in_ms: time_until_send_in_ms,
+    //     };
+    //     self.outgoing_message_handler.add_message(outgoing_message);
+    // }
 
-    /// Sends a partner request message to the specified partner device, establishing a partnership.
-    fn send_partner_request(&mut self, partner: &hardware_interface::UwbAddress) {
-        let hi = self.hardware_interface.as_ref().unwrap().lock();
+    // /// Sends a partner request message to the specified partner device, establishing a partnership.
+    // fn send_partner_request(&mut self, partner: &hardware_interface::UwbAddress) {
+    //     let hi = self.hardware_interface.as_ref().unwrap().lock();
 
-        let message = Message::PartnerRequest {};
-        let data = message.to_data();
-        let time_until_send_in_ms = hi.generate_random_integer() % 10 * 10;
+    //     let message = Message::PartnerRequest {};
+    //     let data = message.to_data();
+    //     let time_until_send_in_ms = hi.generate_random_integer() % 10 * 10;
 
-        let outgoing_message = OutgoingMessage {
-            destination: *partner,
-            data,
-            time_to_send_in_ms: time_until_send_in_ms as i32,
-        };
-        self.outgoing_message_handler.add_message(outgoing_message);
-    }
+    //     let outgoing_message = OutgoingMessage {
+    //         destination: *partner,
+    //         data,
+    //         time_to_send_in_ms: time_until_send_in_ms as i32,
+    //     };
+    //     self.outgoing_message_handler.add_message(outgoing_message);
+    // }
 
-    /// Returns a vector of adjacent devices, which includes both partners and devices for which this device is a partner.
-    fn get_adjacent_devices(&self) -> Vec<hardware_interface::UwbAddress> {
-        let mut adjacent_devices = self.partners.clone();
-        adjacent_devices.extend(self.partners_of.clone());
-        adjacent_devices
-    }
+    // /// Returns a vector of adjacent devices, which includes both partners and devices for which this device is a partner.
+    // fn get_adjacent_devices(&self) -> Vec<hardware_interface::UwbAddress> {
+    //     let mut adjacent_devices = self.partners.clone();
+    //     adjacent_devices.extend(self.partners_of.clone());
+    //     adjacent_devices
+    // }
 
     /// Floods the network with an OGM (Originator Message) to establish routing information.
     ///
     /// After the OGM message has flooded the network, the routing tables of all
     /// other devices will contain an entry for this device.
     pub fn send_ogm(&mut self) {
-        let adjacent_devices = self.get_adjacent_devices();
-        for device in adjacent_devices {
-            let message = Message::Ogm {
-                source: self
-                    .hardware_interface
-                    .as_ref()
-                    .unwrap()
-                    .lock()
-                    .get_uwb_address(),
-                sequence_number: self.next_ogm_sequence_number,
-            };
-            let data = message.to_data();
-            let hi = self.hardware_interface.as_ref().unwrap().lock();
-            let time_until_send_in_ms = hi.generate_random_integer() % 2 * 10;
+        // let adjacent_devices = self.get_adjacent_devices();
+        // for device in adjacent_devices {
+        let message = Message::Ogm {
+            source: self
+                .hardware_interface
+                .as_ref()
+                .unwrap()
+                .lock()
+                .get_uwb_address(),
+            sequence_number: self.next_ogm_sequence_number,
+        };
+        let data = message.to_data();
+        let hi = self.hardware_interface.as_ref().unwrap().lock();
+        let time_until_send_in_ms = hi.generate_random_integer() % 2 * 10;
 
-            let outgoing_message = OutgoingMessage {
-                destination: device,
-                data,
-                time_to_send_in_ms: time_until_send_in_ms as i32,
-            };
-            self.outgoing_message_handler.add_message(outgoing_message);
-        }
+        let broadcast_address =
+            hardware_interface::UwbAddress::new(0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff);
+
+        let outgoing_message = OutgoingMessage {
+            // destination: device,
+            destination: broadcast_address,
+            data,
+            time_to_send_in_ms: time_until_send_in_ms as i32,
+        };
+        self.outgoing_message_handler.add_message(outgoing_message);
+        // }
 
         self.next_ogm_sequence_number = self.next_ogm_sequence_number.wrapping_add(1);
     }
