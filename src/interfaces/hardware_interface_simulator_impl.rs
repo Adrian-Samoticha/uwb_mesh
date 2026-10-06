@@ -245,13 +245,24 @@ impl HardwareInterface for HardwareInterfaceSimulatorImpl {
                 let device_address = self.id_to_uwb_address(device_id as u32);
 
                 if device_address != self.id_to_uwb_address(self.id) {
+                    let sender_position = match sim.get_device_properties(sender_id) {
+                        Some(properties) => properties.position,
+                        None => return HardwareError::SoftwareBug,
+                    };
+                    let receiver_id = device_id;
+                    let receiver_position = match sim.get_device_properties(receiver_id as u32) {
+                        Some(properties) => properties.position,
+                        None => return HardwareError::SoftwareBug,
+                    };
+                    let do_drop = sim.do_drop_message(sender_position, receiver_position);
+
                     let message = Message::create(
                         sender_id.into(),
                         device_id.into(),
                         sim.get_simulator_properties().default_message_transfer_time,
                         data.len(),
                         data,
-                        false,
+                        do_drop,
                     );
 
                     sim.send_message(Arc::new(message));
