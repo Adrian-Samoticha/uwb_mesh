@@ -13,6 +13,8 @@ mod array_map;
 mod firmware;
 mod mesh;
 
+pub use array_map::ArrayMap;
+
 pub struct Device {
     id: Id,
     middleware: parking_lot::Mutex<Option<firmware::Firmware>>,

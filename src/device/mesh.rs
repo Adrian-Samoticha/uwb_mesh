@@ -1,10 +1,15 @@
 extern crate alloc;
+use alloc::rc::Rc;
 use alloc::sync::Arc;
+use alloc::vec;
 use alloc::vec::Vec;
+use core::cell::RefCell;
 use spin::Mutex;
 
 use crate::device::array_map::ArrayMap;
 use crate::interfaces::hardware_interface::{self, UwbAddress, UwbAddressImpl};
+
+type SharedVec<T> = Rc<RefCell<Vec<T>>>;
 
 /// Represents a message that can be sent or received in the mesh network.
 enum Message {
@@ -26,8 +31,17 @@ enum Message {
     /// A unicast message, sent from one device to another in the mesh network.
     Unicast {
         source: UwbAddress,
+        previous_hop: UwbAddress,
         destination: UwbAddress,
+        sequence_number: u32,
         data: Vec<u8>,
+    },
+
+    /// An acknowledgment message for a unicast message.
+    Ack {
+        source: UwbAddress,
+        destination: UwbAddress,
+        sequence_number: u32,
     },
 }
 
@@ -48,13 +62,28 @@ impl Message {
             }
             Message::Unicast {
                 source,
+                previous_hop,
                 destination,
+                sequence_number,
                 data,
             } => {
                 let mut result = vec![0x05];
                 result.extend_from_slice(&source.bytes());
+                result.extend_from_slice(&previous_hop.bytes());
                 result.extend_from_slice(&destination.bytes());
+                result.extend_from_slice(&sequence_number.to_be_bytes());
                 result.extend_from_slice(data);
+                result
+            }
+            Message::Ack {
+                source,
+                destination,
+                sequence_number,
+            } => {
+                let mut result = vec![0x06];
+                result.extend_from_slice(&source.bytes());
+                result.extend_from_slice(&destination.bytes());
+                result.extend_from_slice(&sequence_number.to_be_bytes());
                 result
             }
         }
@@ -85,19 +114,42 @@ impl Message {
                 })
             }
             Some(0x05) => {
-                if data.len() < 1 + 8 + 8 {
+                if data.len() < 1 + 8 + 8 + 8 + 4 {
+                    return None;
+                }
+                let source_bytes = &data[1..9];
+                let previous_hop_bytes = &data[9..17];
+                let destination_bytes = &data[17..25];
+                let sequence_number_bytes = &data[25..29];
+                let source = UwbAddress::Extended(source_bytes.try_into().ok()?);
+                let previous_hop = UwbAddress::Extended(previous_hop_bytes.try_into().ok()?);
+                let destination = UwbAddress::Extended(destination_bytes.try_into().ok()?);
+                let sequence_number = u32::from_be_bytes(sequence_number_bytes.try_into().ok()?);
+                let payload = data[29..].to_vec();
+
+                Some(Message::Unicast {
+                    source,
+                    previous_hop,
+                    destination,
+                    sequence_number,
+                    data: payload,
+                })
+            }
+            Some(0x06) => {
+                if data.len() < 1 + 8 + 8 + 4 {
                     return None;
                 }
                 let source_bytes = &data[1..9];
                 let destination_bytes = &data[9..17];
+                let sequence_number_bytes = &data[17..21];
                 let source = UwbAddress::Extended(source_bytes.try_into().ok()?);
                 let destination = UwbAddress::Extended(destination_bytes.try_into().ok()?);
-                let payload = data[17..].to_vec();
+                let sequence_number = u32::from_be_bytes(sequence_number_bytes.try_into().ok()?);
 
-                Some(Message::Unicast {
+                Some(Message::Ack {
                     source,
                     destination,
-                    data: payload,
+                    sequence_number,
                 })
             }
             _ => None,
@@ -119,9 +171,10 @@ impl Message {
 // }
 
 /// An outgoing message that is scheduled to be sent after a certain delay.
+#[derive(Clone)]
 struct OutgoingMessage {
     destination: hardware_interface::UwbAddress,
-    data: Vec<u8>,
+    data: SharedVec<u8>,
     time_to_send_in_ms: i32,
 }
 
@@ -164,6 +217,89 @@ impl OutgoingMessageHandler {
     }
 }
 
+#[derive(Clone)]
+struct OutgoingMessageWithRetryCountAndSequenceNumber {
+    message: OutgoingMessage,
+    retries_left: u16,
+    sequence_number: u32,
+}
+
+struct OutgoingMessageRetryHandler {
+    messages_with_retry_count: Vec<OutgoingMessageWithRetryCountAndSequenceNumber>,
+    unicast_max_retry_number: u16,
+}
+
+impl OutgoingMessageRetryHandler {
+    fn new(unicast_max_retry_number: u16) -> Self {
+        Self {
+            messages_with_retry_count: Vec::new(),
+            unicast_max_retry_number,
+        }
+    }
+
+    /// Sets the maximum number of retry attempts for unicast messages.
+    fn set_unicast_max_retry_number(&mut self, unicast_max_retry_number: u16) {
+        self.unicast_max_retry_number = unicast_max_retry_number;
+    }
+
+    /// Gets the maximum number of retry attempts for unicast messages.
+    fn get_unicast_max_retry_number(&self) -> u16 {
+        self.unicast_max_retry_number
+    }
+
+    fn add_message(&mut self, message: OutgoingMessage, sequence_number: u32) {
+        let element = OutgoingMessageWithRetryCountAndSequenceNumber {
+            message,
+            retries_left: self.unicast_max_retry_number,
+            sequence_number,
+        };
+        self.messages_with_retry_count.push(element);
+    }
+
+    /// Processes the messages with retry counts and returns a vector of messages that are ready to be sent.
+    /// # Arguments
+    ///
+    /// * `time_passed_in_ms` - The amount of time that has passed since the last processing step, in milliseconds.
+    /// * `random_ms_number` - The random number of milliseconds to set for the next retry of a message.
+    ///
+    /// # Returns
+    ///
+    /// A vector of messages that are ready to be sent.
+    fn process_messages(
+        &mut self,
+        time_passed_in_ms: i32,
+        random_ms_number: i32,
+    ) -> Vec<OutgoingMessage> {
+        let mut ready_messages = Vec::new();
+
+        for message in &mut self.messages_with_retry_count {
+            message.message.time_to_send_in_ms -= time_passed_in_ms;
+
+            if message.message.time_to_send_in_ms <= 0 {
+                ready_messages.push(OutgoingMessage {
+                    destination: message.message.destination,
+                    data: message.message.data.clone(),
+                    time_to_send_in_ms: 0,
+                });
+                message.message.time_to_send_in_ms = random_ms_number;
+                message.retries_left -= 1;
+            }
+        }
+
+        self.messages_with_retry_count
+            .retain(|message| message.retries_left > 0);
+
+        ready_messages
+    }
+
+    /// Acknowledges the receipt of a message with the given sequence number and destination, removing it from the retry handler.
+    fn ack(&mut self, sequence_number: u32, destination: hardware_interface::UwbAddress) {
+        self.messages_with_retry_count.retain(|message| {
+            message.sequence_number != sequence_number || message.message.destination != destination
+        });
+    }
+}
+
 #[derive(Eq, Hash, PartialEq, Clone, Copy)]
 struct UwbAddressAndSequenceNumber {
     address: hardware_interface::UwbAddress,
@@ -185,6 +321,9 @@ pub struct Mesh {
     /// The outgoing message handler, which manages messages that are scheduled to be sent.
     outgoing_message_handler: OutgoingMessageHandler,
 
+    /// The outgoing message retry handler, which manages messages that need to be retried.
+    outgoing_message_retry_handler: OutgoingMessageRetryHandler,
+
     // /// List of devices that have been found during the InitConnections stage
     // /// and have been dedicated as partners.
     // /// A partner is a device for which a network edge has been established and
@@ -196,11 +335,23 @@ pub struct Mesh {
     /// The next sequence number to use for OGM messages.
     next_ogm_sequence_number: u32,
 
+    /// The next sequence number to use for unicast messages.
+    next_unicast_sequence_number: u32,
+
     /// Maps received OGM messages to their age in milliseconds. This is used to determine when to discard old OGMs.
     received_ogm_to_age_in_ms: [(UwbAddressAndSequenceNumber, u32); 4],
 
+    /// Addressed-to-me unicast payloads, delivered from the radio during
+    /// `heartbeat()` and drained by the application with
+    /// `take_received_data()`. The mesh only transports these payloads; the
+    /// application owns any acknowledgement/retransmission protocol.
+    received_data: Vec<(hardware_interface::UwbAddress, Vec<u8>)>,
+
     /// The routing table, which maps destination addresses to the next hop address.
     routing_table: ArrayMap<hardware_interface::UwbAddress, hardware_interface::UwbAddress, 4>,
+
+    /// How often to repeat OGM transmissions (number of times each OGM is sent).
+    ogm_burst_number: u16,
 }
 
 impl Mesh {
@@ -215,9 +366,11 @@ impl Mesh {
             //     found_devices: Vec::new(),
             // },
             outgoing_message_handler: OutgoingMessageHandler::new(),
+            outgoing_message_retry_handler: OutgoingMessageRetryHandler::new(64),
             // partners: Vec::new(),
             // partners_of: Vec::new(),
             next_ogm_sequence_number: 0,
+            next_unicast_sequence_number: 0,
             received_ogm_to_age_in_ms: [(
                 UwbAddressAndSequenceNumber {
                     address: hardware_interface::UwbAddress::Short(0),
@@ -225,7 +378,9 @@ impl Mesh {
                 },
                 0,
             ); 4],
+            received_data: Vec::new(),
             routing_table: ArrayMap::new([None; 4], [hardware_interface::UwbAddress::Short(0); 4]),
+            ogm_burst_number: 8,
         }
     }
 
@@ -283,12 +438,27 @@ impl Mesh {
     fn on_10ms_passed(&mut self) {
         // let mut should_broadcast_probe = false;
 
+        let delay_until_next_retry = {
+            let hi = self.hardware_interface.as_ref().unwrap().lock();
+            let delay = hi.generate_random_integer() % 2 * 10;
+            drop(hi);
+            delay
+        };
+
+        self.outgoing_message_retry_handler
+            .process_messages(10, delay_until_next_retry.try_into().unwrap())
+            .into_iter()
+            .for_each(|message| {
+                self.outgoing_message_handler.add_message(message);
+            });
+
         self.outgoing_message_handler
             .process_messages(10)
             .into_iter()
             .for_each(|message| {
                 let mut hi = self.hardware_interface.as_mut().unwrap().lock();
-                hi.send_message(message.destination, &message.data);
+                let arr = &message.data.borrow();
+                hi.send_message(message.destination, arr);
                 drop(hi);
             });
 
@@ -473,14 +643,24 @@ impl Mesh {
                         //     }
                         //     self.forward_ogm(&device, source, sequence_number);
                         // }
-                        let broadcast_address = hardware_interface::UwbAddress::new(
-                            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-                        );
-                        self.forward_ogm(&broadcast_address, source, sequence_number);
+                        let own_address = self
+                            .hardware_interface
+                            .as_ref()
+                            .unwrap()
+                            .lock()
+                            .get_uwb_address();
+                        if source != own_address {
+                            let broadcast_address = hardware_interface::UwbAddress::new(
+                                0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                            );
+                            self.forward_ogm(&broadcast_address, source, sequence_number);
+                        }
                     }
                     Message::Unicast {
                         source,
+                        previous_hop,
                         destination,
+                        sequence_number,
                         data,
                     } => {
                         let is_addressed_to_me = {
@@ -489,39 +669,77 @@ impl Mesh {
                         };
 
                         if is_addressed_to_me {
-                            let hi = self.hardware_interface.as_ref().unwrap().lock();
-                            hi.printf(format_args!(
-                                "Received unicast message from {}: {:?}\n",
-                                source, data
-                            ));
+                            {
+                                let hi = self.hardware_interface.as_ref().unwrap().lock();
+                                hi.printf(format_args!(
+                                    "Received unicast message from {}: {:?}\n",
+                                    source, data
+                                ));
+                            }
+                            // Hand the payload to the application layer, which
+                            // owns any acknowledgement logic.
+                            self.received_data.push((source, data));
+
+                            // TODO: check if not already received
                         } else {
                             let next_hop = self.routing_table.get(&destination);
+                            let hi = self.hardware_interface.as_ref().unwrap().lock();
+                            let own_address = hi.get_uwb_address();
                             if let Some(next_hop) = next_hop {
+                                let data = Message::Unicast {
+                                    source,
+                                    previous_hop: own_address,
+                                    destination,
+                                    sequence_number,
+                                    data,
+                                }
+                                .to_data();
                                 let outgoing_message = OutgoingMessage {
                                     destination: *next_hop,
-                                    data: Message::Unicast {
-                                        source,
-                                        destination,
-                                        data,
-                                    }
-                                    .to_data(),
+                                    data: Rc::new(RefCell::new(data)),
                                     time_to_send_in_ms: 0,
                                 };
-                                self.outgoing_message_handler.add_message(outgoing_message);
+                                self.outgoing_message_retry_handler
+                                    .add_message(outgoing_message, sequence_number);
 
-                                let hi = self.hardware_interface.as_ref().unwrap().lock();
                                 hi.printf(format_args!(
                                     "Forwarding unicast message from {} to {} via next hop {}\n",
                                     source, destination, next_hop
                                 ));
                             } else {
-                                let hi = self.hardware_interface.as_ref().unwrap().lock();
                                 hi.printf(format_args!(
                                     "No route to {} for unicast message from {}, dropping\n",
                                     destination, source
                                 ));
                             }
                         }
+
+                        let ack_message = Message::Ack {
+                            source: source,
+                            destination: destination,
+                            sequence_number,
+                        }
+                        .to_data();
+                        let outgoing_message = OutgoingMessage {
+                            destination: previous_hop,
+                            data: Rc::new(RefCell::new(ack_message)),
+                            time_to_send_in_ms: 0,
+                        };
+                        self.outgoing_message_handler.add_message(outgoing_message);
+                    }
+                    Message::Ack {
+                        source: _,
+                        destination,
+                        sequence_number,
+                    } => {
+                        self.outgoing_message_retry_handler
+                            .ack(sequence_number, destination);
+
+                        let hi = self.hardware_interface.as_ref().unwrap().lock();
+                        hi.printf(format_args!(
+                            "Received ack for sequence number {} from {}\n",
+                            sequence_number, destination
+                        ));
                     }
                 }
             } else {
@@ -589,24 +807,68 @@ impl Mesh {
                 .get_uwb_address(),
             sequence_number: self.next_ogm_sequence_number,
         };
-        let data = message.to_data();
-        let hi = self.hardware_interface.as_ref().unwrap().lock();
-        let time_until_send_in_ms = hi.generate_random_integer() % 2 * 10;
+        let mut hi = self.hardware_interface.as_ref().unwrap().lock();
+        let mut time_until_send_in_ms = 0;
+        let message_data = Rc::new(RefCell::new(message.to_data()));
+        for _ in 0..self.ogm_burst_number {
+            let data = Rc::clone(&message_data);
+            time_until_send_in_ms += hi.generate_random_integer() % 2 * 10;
 
-        let broadcast_address =
-            hardware_interface::UwbAddress::new(0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff);
+            let broadcast_address =
+                hardware_interface::UwbAddress::new(0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff);
 
-        let outgoing_message = OutgoingMessage {
-            // destination: device,
-            destination: broadcast_address,
-            data,
-            time_to_send_in_ms: time_until_send_in_ms as i32,
-        };
-        self.outgoing_message_handler.add_message(outgoing_message);
+            let outgoing_message = OutgoingMessage {
+                // destination: device,
+                destination: broadcast_address,
+                data,
+                time_to_send_in_ms: time_until_send_in_ms as i32,
+            };
+            self.outgoing_message_handler.add_message(outgoing_message);
+        }
         // }
 
         self.next_ogm_sequence_number = self.next_ogm_sequence_number.wrapping_add(1);
     }
+
+    // TODO: remove this (if it’s unused)
+    // /// Queues one copy of a *single* OGM (one originator + sequence number)
+    // /// as part of a flood. The main loop calls this once per burst step with
+    // /// the step `index`; all copies share the same sequence number and it
+    // /// only advances after the last copy (`index + 1 == repeats`).
+    // ///
+    // /// Intended for duty-cycled neighbours: a flood spans `repeats * step`
+    // /// in time (the main loop paces the steps), so a node that only listens
+    // /// for part of its wake window still catches at least one copy — while
+    // /// seeing exactly one distinct OGM for deduplication and routing.
+    // /// Queuing one copy per call (as the sender ping burst does) keeps heap
+    // /// usage bounded.
+    // pub fn send_ogm_burst(&mut self, index: u32, repeats: u32) {
+    //     let message = Message::Ogm {
+    //         source: self
+    //             .hardware_interface
+    //             .as_ref()
+    //             .unwrap()
+    //             .lock()
+    //             .get_uwb_address(),
+    //         sequence_number: self.next_ogm_sequence_number,
+    //     };
+    //     let data = message.to_data();
+    //     let mut hi = self.hardware_interface.as_ref().unwrap().lock();
+    //     let time_until_send_in_ms = hi.generate_random_integer() % 2 * 10;
+
+    //     let broadcast_address =
+    //         hardware_interface::UwbAddress::new(0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff);
+    //     self.outgoing_message_handler.add_message(OutgoingMessage {
+    //         destination: broadcast_address,
+    //         data,
+    //         time_to_send_in_ms: time_until_send_in_ms as i32,
+    //     });
+    //     drop(hi);
+
+    //     if index + 1 == repeats {
+    //         self.next_ogm_sequence_number = self.next_ogm_sequence_number.wrapping_add(1);
+    //     }
+    // }
 
     /// Forwards an OGM (Originator Message) to the specified destination, preserving the source and sequence number.
     fn forward_ogm(
@@ -619,16 +881,19 @@ impl Mesh {
             source,
             sequence_number,
         };
-        let data = message.to_data();
-        let hi = self.hardware_interface.as_ref().unwrap().lock();
-        let time_until_send_in_ms = hi.generate_random_integer() % 2 * 10;
+        let mut hi = self.hardware_interface.as_ref().unwrap().lock();
+        let mut time_until_send_in_ms = 0;
+        let message_data = Rc::new(RefCell::new(message.to_data()));
+        for _ in 0..self.ogm_burst_number {
+            time_until_send_in_ms += hi.generate_random_integer() % 2 * 10;
 
-        let outgoing_message = OutgoingMessage {
-            destination: *destination,
-            data,
-            time_to_send_in_ms: time_until_send_in_ms as i32,
-        };
-        self.outgoing_message_handler.add_message(outgoing_message);
+            let outgoing_message = OutgoingMessage {
+                destination: *destination,
+                data: Rc::clone(&message_data),
+                time_to_send_in_ms: time_until_send_in_ms as i32,
+            };
+            self.outgoing_message_handler.add_message(outgoing_message);
+        }
     }
 
     /// Ages the received OGMs by the specified time in milliseconds.
@@ -645,6 +910,15 @@ impl Mesh {
         self.routing_table
     }
 
+    /// Drains one addressed-to-me unicast payload delivered by the mesh, if
+    /// any. The application owns the acknowledgement/retransmission logic.
+    pub fn take_received_data(&mut self) -> Option<(hardware_interface::UwbAddress, Vec<u8>)> {
+        if self.received_data.is_empty() {
+            return None;
+        }
+        Some(self.received_data.remove(0))
+    }
+
     /// Sends a unicast message to the specified destination with the given data.
     pub fn send_unicast(&mut self, destination: hardware_interface::UwbAddress, data: Vec<u8>) {
         let own_address = self
@@ -656,11 +930,13 @@ impl Mesh {
 
         let message = Message::Unicast {
             source: own_address,
+            previous_hop: own_address,
             destination,
+            sequence_number: self.next_unicast_sequence_number,
             data,
         };
-        let data = message.to_data();
-        let hi = self.hardware_interface.as_ref().unwrap().lock();
+        let data = Rc::new(RefCell::new(message.to_data()));
+        let mut hi = self.hardware_interface.as_ref().unwrap().lock();
         let time_until_send_in_ms = hi.generate_random_integer() % 2 * 10;
 
         let immediate_destination = if let Some(next_hop) = self.routing_table.get(&destination) {
@@ -674,6 +950,9 @@ impl Mesh {
             data,
             time_to_send_in_ms: time_until_send_in_ms as i32,
         };
-        self.outgoing_message_handler.add_message(outgoing_message);
+        self.outgoing_message_retry_handler
+            .add_message(outgoing_message, self.next_unicast_sequence_number);
+
+        self.next_unicast_sequence_number = self.next_unicast_sequence_number.wrapping_add(1);
     }
 }

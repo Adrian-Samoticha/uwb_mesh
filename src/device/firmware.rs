@@ -1,6 +1,6 @@
 extern crate alloc;
 use alloc::sync::Arc;
-use alloc::{string::String, vec::Vec};
+use alloc::{string::String, string::ToString, vec::Vec};
 use spin::Mutex;
 
 use crate::{
@@ -48,6 +48,39 @@ impl Firmware {
         self.mesh.heartbeat();
 
         self.handle_serial_input();
+    }
+
+    /// Flood an OGM so other nodes learn a route to us. Used by the
+    /// real-hardware main loop (no serial console there).
+    pub fn send_ogm(&mut self) {
+        self.mesh.send_ogm();
+    }
+
+    // TODO: remove this (if it’s unused)
+    // /// Queue one copy of a single-OGM flood (one sequence number); the main
+    // /// loop calls this once per flood step with the step `index`.
+    // pub fn send_ogm_burst(&mut self, index: u32, repeats: u32) {
+    //     self.mesh.send_ogm_burst(index, repeats);
+    // }
+
+    /// Queue a unicast frame for `destination`. Used by the real-hardware
+    /// main loop (no serial console there).
+    pub fn send_unicast(&mut self, destination: hardware_interface::UwbAddress, data: Vec<u8>) {
+        self.mesh.send_unicast(destination, data);
+    }
+
+    /// Drain one addressed-to-me unicast payload (source, data) received by
+    /// the mesh; application-level acknowledgement logic lives elsewhere.
+    pub fn take_received_data(&mut self) -> Option<(hardware_interface::UwbAddress, Vec<u8>)> {
+        self.mesh.take_received_data()
+    }
+
+    /// Snapshot of the mesh routing table (destination -> next hop).
+    pub fn get_routing_table(
+        &self,
+    ) -> crate::device::ArrayMap<hardware_interface::UwbAddress, hardware_interface::UwbAddress, 4>
+    {
+        self.mesh.get_routing_table()
     }
 
     fn handle_serial_input(&mut self) {
