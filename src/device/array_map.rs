@@ -99,7 +99,7 @@ impl<K: Copy + PartialEq, V: Copy, const N: usize> ArrayMap<K, V, N> {
     }
 }
 
-impl<K: Copy + PartialEq, V: Copy, const N: usize> std::ops::Index<&K> for ArrayMap<K, V, N> {
+impl<K: Copy + PartialEq, V: Copy, const N: usize> core::ops::Index<&K> for ArrayMap<K, V, N> {
     type Output = V;
 
     fn index(&self, key: &K) -> &Self::Output {
@@ -107,7 +107,7 @@ impl<K: Copy + PartialEq, V: Copy, const N: usize> std::ops::Index<&K> for Array
     }
 }
 
-impl<K: Copy + PartialEq, V: Copy, const N: usize> std::ops::IndexMut<&K> for ArrayMap<K, V, N> {
+impl<K: Copy + PartialEq, V: Copy, const N: usize> core::ops::IndexMut<&K> for ArrayMap<K, V, N> {
     fn index_mut(&mut self, key: &K) -> &mut Self::Output {
         self.get_mut(key).expect("key not found in ArrayMap")
     }
