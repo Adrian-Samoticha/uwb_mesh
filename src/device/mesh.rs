@@ -306,6 +306,14 @@ struct UwbAddressAndSequenceNumber {
     sequence_number: u32,
 }
 
+#[derive(Eq, Hash, PartialEq, Clone, Copy)]
+struct SourceDestinationSequenceNumberAndEntryAge {
+    source: hardware_interface::UwbAddress,
+    destination: hardware_interface::UwbAddress,
+    sequence_number: u32,
+    entry_age_in_ms: u32,
+}
+
 pub struct Mesh {
     /// The hardware interface used to interface with the underlying hardware.
     hardware_interface: Option<Arc<Mutex<dyn hardware_interface::HardwareInterface>>>,
@@ -352,6 +360,9 @@ pub struct Mesh {
 
     /// How often to repeat OGM transmissions (number of times each OGM is sent).
     ogm_burst_number: u16,
+
+    /// Tracks received unicast messages to prevent double delivery.
+    received_unicast_messages: Vec<SourceDestinationSequenceNumberAndEntryAge>,
 }
 
 impl Mesh {
@@ -381,6 +392,7 @@ impl Mesh {
             received_data: Vec::new(),
             routing_table: ArrayMap::new([None; 4], [hardware_interface::UwbAddress::Short(0); 4]),
             ogm_burst_number: 8,
+            received_unicast_messages: Vec::new(),
         }
     }
 
@@ -461,6 +473,23 @@ impl Mesh {
                 hi.send_message(message.destination, arr);
                 drop(hi);
             });
+
+        self.received_unicast_messages.iter_mut().for_each(|entry| {
+            entry.entry_age_in_ms += 10;
+        });
+        self.received_unicast_messages
+            .retain(|entry| entry.entry_age_in_ms < 5000);
+        while self.received_unicast_messages.len() > 20 {
+            let oldest_entry_index = self
+                .received_unicast_messages
+                .iter()
+                .enumerate()
+                .max_by_key(|(_, entry)| entry.entry_age_in_ms)
+                .map(|(index, _)| index);
+            if let Some(index) = oldest_entry_index {
+                self.received_unicast_messages.remove(index);
+            }
+        }
 
         // if let MeshStage::InitConnections {
         //     time_until_done_in_ms,
@@ -663,6 +692,30 @@ impl Mesh {
                         sequence_number,
                         data,
                     } => {
+                        let already_received = self.received_unicast_messages.iter().any(|entry| {
+                            entry.source == source
+                                && entry.destination == destination
+                                && entry.sequence_number == sequence_number
+                        });
+
+                        if already_received {
+                            let hi = self.hardware_interface.as_ref().unwrap().lock();
+                            hi.printf(format_args!(
+                                "Already received unicast message from {} to {} with sequence number {}, ignoring\n",
+                                source, destination, sequence_number
+                            ));
+                            break;
+                        }
+
+                        self.received_unicast_messages.push(
+                            SourceDestinationSequenceNumberAndEntryAge {
+                                source,
+                                destination,
+                                sequence_number,
+                                entry_age_in_ms: 0,
+                            },
+                        );
+
                         let is_addressed_to_me = {
                             let hi = self.hardware_interface.as_ref().unwrap().lock();
                             destination == hi.get_uwb_address()
@@ -679,8 +732,6 @@ impl Mesh {
                             // Hand the payload to the application layer, which
                             // owns any acknowledgement logic.
                             self.received_data.push((source, data));
-
-                            // TODO: check if not already received
                         } else {
                             let next_hop = self.routing_table.get(&destination);
                             let hi = self.hardware_interface.as_ref().unwrap().lock();
