@@ -302,7 +302,7 @@ impl HardwareInterface for HardwareInterfaceSimulatorImpl {
         HardwareError::Ok
     }
 
-    fn generate_random_integer(&self) -> u32 {
+    fn generate_random_integer(&mut self) -> u32 {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos() as u64)

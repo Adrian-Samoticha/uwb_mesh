@@ -451,7 +451,7 @@ impl Mesh {
         // let mut should_broadcast_probe = false;
 
         let delay_until_next_retry = {
-            let hi = self.hardware_interface.as_ref().unwrap().lock();
+            let mut hi = self.hardware_interface.as_ref().unwrap().lock();
             let delay = hi.generate_random_integer() % 2 * 10;
             drop(hi);
             delay

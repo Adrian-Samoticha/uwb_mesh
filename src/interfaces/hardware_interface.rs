@@ -1,8 +1,10 @@
+extern crate alloc;
+
+use alloc::vec::Vec;
 use core::fmt;
 use core::fmt::Arguments;
-use std::thread;
-use std::time::Duration;
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HardwareError {
     Ok,
@@ -87,10 +89,9 @@ pub struct IncomingMessage {
     pub data: Vec<u8>,
 }
 
+#[allow(dead_code)]
 pub trait HardwareInterface {
-    fn printf(&self, args: Arguments<'_>) {
-        print!("{}", args);
-    }
+    fn printf(&self, args: Arguments<'_>);
 
     fn restart(&self) {}
 
@@ -109,7 +110,7 @@ pub trait HardwareInterface {
     fn delay(&self, ms: u32) {
         let start = self.millis();
         while self.millis().wrapping_sub(start) < ms && self.is_alive() {
-            thread::sleep(Duration::from_millis(1));
+            core::hint::spin_loop();
         }
     }
 
@@ -145,7 +146,22 @@ pub trait HardwareInterface {
         0
     }
 
-    fn generate_random_integer(&self) -> u32 {
+    /// Push a fully received frame into the RX queue.
+    ///
+    /// Used by real-hardware drivers where an async pump task owns the radio
+    /// and forwards decoded frames into the (synchronous) mesh-facing queue.
+    /// The default impl drops the message (pure simulators override this).
+    fn push_incoming(&mut self, _msg: IncomingMessage) {}
+
+    /// Pop the next frame waiting for transmission, if any.
+    ///
+    /// Real-hardware drivers enqueue in `send_message` and let an async pump
+    /// task drain via this method. Defaults to `None`.
+    fn take_outgoing(&mut self) -> Option<(UwbAddress, Vec<u8>)> {
+        None
+    }
+
+    fn generate_random_integer(&mut self) -> u32 {
         0
     }
 }
