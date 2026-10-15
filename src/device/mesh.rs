@@ -11,6 +11,20 @@ use crate::interfaces::hardware_interface::{self, UwbAddress, UwbAddressImpl};
 
 type SharedVec<T> = Rc<RefCell<Vec<T>>>;
 
+// Initially, OGM messages were sent over unicast, rather than broadcast,
+// in order to improve reliability. To this end, the network used probe
+// requests, probe responses, and partner requests to establish reliable unicast
+// paths before sending OGMs. The mesh would work in two phases:
+// 1. Scan the network for other devices using probe requests and responses.
+// 2. Maintain partner relationships and reliable unicast paths with other
+// devices.
+// During testing in the simulator, I have found that this approach could fail
+// if no other devices were found in the first phase. The mesh would then
+// effectively split in two. For this reason, this approach was abandoned in
+// favor of broadcast OGMs. The code that implemented the unicast-based approach
+// was merely commented out rather than deleted, in case it needed to be
+// referenced or reinstated later.
+
 /// Represents a message that can be sent or received in the mesh network.
 enum Message {
     // /// A probe request message, used to discover other devices in the mesh network.
@@ -452,7 +466,7 @@ impl Mesh {
 
         let delay_until_next_retry = {
             let mut hi = self.hardware_interface.as_ref().unwrap().lock();
-            let delay = hi.generate_random_integer() % 2 * 10;
+            let delay = (hi.generate_random_integer() % 4 + 2) * 10;
             drop(hi);
             delay
         };
@@ -612,14 +626,6 @@ impl Mesh {
                         source,
                         sequence_number,
                     } => {
-                        {
-                            let hi = self.hardware_interface.as_ref().unwrap().lock();
-                            hi.printf(format_args!(
-                                "Received OGM from {} with sequence number {}\n",
-                                source, sequence_number
-                            ));
-                        }
-
                         let key = UwbAddressAndSequenceNumber {
                             address: source,
                             sequence_number,
@@ -651,6 +657,14 @@ impl Mesh {
                                 source, sequence_number
                             ));
                             continue;
+                        }
+
+                        {
+                            let hi = self.hardware_interface.as_ref().unwrap().lock();
+                            hi.printf(format_args!(
+                                "Received OGM from {} with sequence number {}\n",
+                                source, sequence_number
+                            ));
                         }
 
                         if !self.routing_table.contains_key(&source)
@@ -692,6 +706,19 @@ impl Mesh {
                         sequence_number,
                         data,
                     } => {
+                        let ack_message = Message::Ack {
+                            source: source,
+                            destination: destination,
+                            sequence_number,
+                        }
+                        .to_data();
+                        let outgoing_message = OutgoingMessage {
+                            destination: previous_hop,
+                            data: Rc::new(RefCell::new(ack_message)),
+                            time_to_send_in_ms: 0,
+                        };
+                        self.outgoing_message_handler.add_message(outgoing_message);
+
                         let already_received = self.received_unicast_messages.iter().any(|entry| {
                             entry.source == source
                                 && entry.destination == destination
@@ -704,7 +731,7 @@ impl Mesh {
                                 "Already received unicast message from {} to {} with sequence number {}, ignoring\n",
                                 source, destination, sequence_number
                             ));
-                            break;
+                            continue;
                         }
 
                         self.received_unicast_messages.push(
@@ -764,19 +791,6 @@ impl Mesh {
                                 ));
                             }
                         }
-
-                        let ack_message = Message::Ack {
-                            source: source,
-                            destination: destination,
-                            sequence_number,
-                        }
-                        .to_data();
-                        let outgoing_message = OutgoingMessage {
-                            destination: previous_hop,
-                            data: Rc::new(RefCell::new(ack_message)),
-                            time_to_send_in_ms: 0,
-                        };
-                        self.outgoing_message_handler.add_message(outgoing_message);
                     }
                     Message::Ack {
                         source: _,
